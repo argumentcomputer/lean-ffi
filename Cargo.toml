@@ -1,3 +1,6 @@
+[workspace]
+members = ["test"]
+
 [package]
 name = "lean-ffi"
 version = "0.1.0"
