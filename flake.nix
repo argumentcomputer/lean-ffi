@@ -73,23 +73,11 @@
         rustPkg = craneLib.buildPackage (craneArgs
           // {
             inherit cargoArtifacts;
-          });
-
-        # Test Rust static library (liblean_ffi_rs.a)
-        testCraneArgs =
-          craneArgs
-          // {
-            # Build from the test subdirectory so cargo metadata correctly
-            # identifies lean-ffi-rs as the package root
-            postUnpack = ''
-              sourceRoot="$(echo */test)"
+            cargoExtraArgs = "--locked --workspace";
+            postInstall = ''
+              mkdir -p $out/lib
+              cp target/release/liblean_ffi_rs.a $out/lib/
             '';
-          };
-        # Drop --locked: the path dep on lean-ffi makes the dummy source
-        # environment look stale to cargo
-        testRustPkg = craneLib.buildPackage (testCraneArgs
-          // {
-            cargoExtraArgs = "";
           });
 
         # Lake test package
@@ -108,7 +96,7 @@
           # Copy the Rust static lib from Crane to target/release so Lake can find it
           postConfigure = ''
             mkdir -p target/release
-            ln -s ${testRustPkg}/lib/liblean_ffi_rs.a target/release/
+            ln -s ${rustPkg}/lib/liblean_ffi_rs.a target/release/
           '';
         };
       in {
