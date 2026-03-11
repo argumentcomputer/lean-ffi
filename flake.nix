@@ -93,10 +93,12 @@
           postPatch = ''
             substituteInPlace lakefile.lean --replace-fail 'proc { cmd := "cargo"' '--proc { cmd := "cargo"'
           '';
-          # Copy the Rust static lib from Crane to target/release so Lake can find it
+          # Copy the Rust static lib from Crane so Lake can find it.
+          # The lakefile references `pkg.dir / ".." / "target" / "release"` since
+          # the workspace root owns the target dir.
           postConfigure = ''
-            mkdir -p target/release
-            ln -s ${rustPkg}/lib/liblean_ffi_rs.a target/release/
+            mkdir -p ../target/release
+            ln -s ${rustPkg}/lib/liblean_ffi_rs.a ../target/release/
           '';
         };
       in {
