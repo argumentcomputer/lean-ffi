@@ -1,15 +1,6 @@
 {
   description = "lean-ffi Nix flake (Lean4 + Rust)";
 
-  nixConfig = {
-    extra-substituters = [
-      "https://cache.garnix.io"
-    ];
-    extra-trusted-public-keys = [
-      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
-    ];
-  };
-
   inputs = {
     # System packages, follows lean4-nix so we stay in sync
     nixpkgs.follows = "lean4-nix/nixpkgs";
@@ -83,6 +74,43 @@
           // {
             inherit cargoArtifacts;
           });
+
+        # Test Rust static library (liblean_ffi_rs.a)
+        testCraneArgs =
+          craneArgs
+          // {
+            # Build from the test subdirectory so cargo metadata correctly
+            # identifies lean-ffi-rs as the package root
+            postUnpack = ''
+              sourceRoot="$(echo */test)"
+            '';
+          };
+        # Drop --locked: the path dep on lean-ffi makes the dummy source
+        # environment look stale to cargo
+        testRustPkg = craneLib.buildPackage (testCraneArgs
+          // {
+            cargoExtraArgs = "";
+          });
+
+        # Lake test package
+        lake2nix = pkgs.callPackage lean4-nix.lake {};
+        lakeDeps = lake2nix.buildDeps {
+          src = ./test;
+        };
+        lakeTest = lake2nix.mkPackage {
+          name = "LeanFFITests";
+          inherit lakeDeps;
+          src = ./test;
+          # Don't build the Rust static lib with Lake, since we build it with Crane
+          postPatch = ''
+            substituteInPlace lakefile.lean --replace-fail 'proc { cmd := "cargo"' '--proc { cmd := "cargo"'
+          '';
+          # Copy the Rust static lib from Crane to target/release so Lake can find it
+          postConfigure = ''
+            mkdir -p target/release
+            ln -s ${testRustPkg}/lib/liblean_ffi_rs.a target/release/
+          '';
+        };
       in {
         # Lean overlay
         _module.args.pkgs = import nixpkgs {
@@ -92,6 +120,7 @@
 
         packages = {
           default = rustPkg;
+          test = lakeTest;
         };
 
         # Provide a unified dev shell with Lean + Rust
@@ -104,9 +133,6 @@
             clang
             rustToolchain
             lean.lean-all # Includes Lean compiler, lake, stdlib, etc.
-            # gmp
-            # cargo-deny
-            # valgrind
           ];
         };
 

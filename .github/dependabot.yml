@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    pull-request-branch-name:
+      separator: "-"
+    schedule:
+      interval: "weekly"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+        # Group all updates into one PR to reduce clutter
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+    allow:
+      # Update both direct and indirect dependencies
+      - dependency-type: "all"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-dependencies:
+        patterns:
+          - "*"
