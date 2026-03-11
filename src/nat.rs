@@ -9,7 +9,7 @@ use std::mem::MaybeUninit;
 
 use num_bigint::BigUint;
 
-use crate::object::LeanObject;
+use crate::object::{LeanNat, LeanObject};
 
 /// Arbitrary-precision natural number, wrapping `BigUint`.
 #[derive(Hash, PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
@@ -57,6 +57,28 @@ impl Nat {
     #[inline]
     pub fn to_le_bytes(&self) -> Vec<u8> {
         self.0.to_bytes_le()
+    }
+
+    /// Convert this `Nat` into a Lean `Nat` object.
+    pub fn to_lean(&self) -> LeanNat {
+        // Try to get as u64 first
+        if let Some(val) = self.to_u64() {
+            // For small values that fit in a boxed scalar (max value is usize::MAX >> 1)
+            if val <= (usize::MAX >> 1) as u64 {
+                #[allow(clippy::cast_possible_truncation)]
+                return LeanNat::new(LeanObject::box_usize(val as usize));
+            }
+            return LeanNat::new(LeanObject::from_nat_u64(val));
+        }
+        // For values larger than u64, convert to limbs and use GMP
+        let bytes = self.to_le_bytes();
+        let mut limbs: Vec<u64> = Vec::with_capacity(bytes.len().div_ceil(8));
+        for chunk in bytes.chunks(8) {
+            let mut arr = [0u8; 8];
+            arr[..chunk.len()].copy_from_slice(chunk);
+            limbs.push(u64::from_le_bytes(arr));
+        }
+        LeanNat::new(unsafe { lean_nat_from_limbs(limbs.len(), limbs.as_ptr()) })
     }
 }
 

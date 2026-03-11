@@ -12,27 +12,9 @@ use lean_ffi::object::{
     LeanIOResult, LeanList, LeanNat, LeanObject, LeanOption, LeanProd, LeanString,
 };
 
-// =============================================================================
-// Nat building
-// =============================================================================
-
-/// Build a Lean Nat from a Rust Nat.
+/// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
 fn build_nat(n: &Nat) -> LeanObject {
-    if let Some(val) = n.to_u64() {
-        if val <= (usize::MAX >> 1) as u64 {
-            #[allow(clippy::cast_possible_truncation)]
-            return LeanObject::box_usize(val as usize);
-        }
-        return LeanObject::from_nat_u64(val);
-    }
-    let bytes = n.to_le_bytes();
-    let mut limbs: Vec<u64> = Vec::with_capacity(bytes.len().div_ceil(8));
-    for chunk in bytes.chunks(8) {
-        let mut arr = [0u8; 8];
-        arr[..chunk.len()].copy_from_slice(chunk);
-        limbs.push(u64::from_le_bytes(arr));
-    }
-    unsafe { lean_ffi::nat::lean_nat_from_limbs(limbs.len(), limbs.as_ptr()) }
+    n.to_lean().into()
 }
 
 // =============================================================================
