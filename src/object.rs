@@ -747,36 +747,6 @@ impl LeanCtor {
         self.set_scalar_u8(num_objs, offset, val as u8);
     }
 
-    // ---------------------------------------------------------------------------
-    // Deprecated setters — use set_scalar_* instead
-    // ---------------------------------------------------------------------------
-
-    /// Set a `u8` scalar field at the given byte offset (past all object fields).
-    #[deprecated(note = "use set_scalar_u8(num_objs, offset, val) instead")]
-    pub fn set_u8(&self, offset: usize, val: u8) {
-        #[allow(clippy::cast_possible_truncation)]
-        unsafe {
-            include::lean_ctor_set_uint8(self.0.as_ptr() as *mut _, offset as u32, val);
-        }
-    }
-
-    /// Set a `u32` scalar field at the given byte offset (past all object fields).
-    #[deprecated(note = "use set_scalar_u32(num_objs, offset, val) instead")]
-    pub fn set_u32(&self, offset: usize, val: u32) {
-        #[allow(clippy::cast_possible_truncation)]
-        unsafe {
-            include::lean_ctor_set_uint32(self.0.as_ptr() as *mut _, offset as u32, val);
-        }
-    }
-
-    /// Set a `u64` scalar field at the given byte offset (past all object fields).
-    #[deprecated(note = "use set_scalar_u64(num_objs, offset, val) instead")]
-    pub fn set_u64(&self, offset: usize, val: u64) {
-        #[allow(clippy::cast_possible_truncation)]
-        unsafe {
-            include::lean_ctor_set_uint64(self.0.as_ptr() as *mut _, offset as u32, val);
-        }
-    }
 }
 
 // =============================================================================

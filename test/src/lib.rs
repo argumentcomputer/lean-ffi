@@ -206,7 +206,6 @@ pub extern "C" fn rs_io_result_error_string(s: LeanString) -> LeanObject {
 /// u32val : UInt32, u64val : UInt64).
 /// Layout: tag 0, 1 obj field, 13 scalar bytes (1 + 4 + 8, padded).
 #[unsafe(no_mangle)]
-#[allow(deprecated)]
 pub extern "C" fn rs_roundtrip_scalar_struct(ptr: LeanCtor) -> LeanObject {
     let obj_nat = Nat::from_obj(ptr.get(0));
     let u8val = ptr.scalar_u8(1, 0);
