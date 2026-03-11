@@ -1,0 +1,15 @@
+{"version": "1.1.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/argumentcomputer/LSpec",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "928f27c7de8318455ba0be7461dbdf7096f4075a",
+   "name": "LSpec",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "928f27c7de8318455ba0be7461dbdf7096f4075a",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "«lean-ffi-test»",
+ "lakeDir": ".lake"}

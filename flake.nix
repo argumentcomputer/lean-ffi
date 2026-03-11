@@ -1,0 +1,116 @@
+{
+  description = "lean-ffi Nix flake (Lean4 + Rust)";
+
+  nixConfig = {
+    extra-substituters = [
+      "https://cache.garnix.io"
+    ];
+    extra-trusted-public-keys = [
+      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
+    ];
+  };
+
+  inputs = {
+    # System packages, follows lean4-nix so we stay in sync
+    nixpkgs.follows = "lean4-nix/nixpkgs";
+
+    # Lean 4 & Lake
+    lean4-nix.url = "github:lenianiva/lean4-nix";
+
+    # Helper: flake-parts for easier outputs
+    flake-parts.url = "github:hercules-ci/flake-parts";
+
+    # Rust-related inputs
+    fenix = {
+      url = "github:nix-community/fenix";
+      # Follow lean4-nix nixpkgs so we stay in sync
+      inputs.nixpkgs.follows = "lean4-nix/nixpkgs";
+    };
+
+    crane.url = "github:ipetkov/crane";
+  };
+
+  outputs = inputs @ {
+    nixpkgs,
+    flake-parts,
+    lean4-nix,
+    fenix,
+    crane,
+    ...
+  }:
+    flake-parts.lib.mkFlake {inherit inputs;} {
+      # Systems we want to build for
+      systems = [
+        "aarch64-darwin"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "x86_64-linux"
+      ];
+
+      perSystem = {
+        system,
+        pkgs,
+        ...
+      }: let
+        # Pins the Rust toolchain
+        rustToolchain = fenix.packages.${system}.fromToolchainFile {
+          file = ./rust-toolchain.toml;
+          sha256 = "sha256-sqSWJDUxc+zaz1nBWMAJKTAGBuGWP25GCftIOlCEAtA=";
+        };
+
+        # Rust package
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        src = craneLib.cleanCargoSource ./.;
+        craneArgs = {
+          inherit src;
+          strictDeps = true;
+
+          # build.rs uses LEAN_SYSROOT to locate lean/lean.h for bindgen
+          LEAN_SYSROOT = "${pkgs.lean.lean-all}";
+          # bindgen needs libclang to parse C headers
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+          buildInputs =
+            []
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              # Additional darwin specific inputs can be set here
+              pkgs.libiconv
+            ];
+        };
+        cargoArtifacts = craneLib.buildDepsOnly craneArgs;
+
+        rustPkg = craneLib.buildPackage (craneArgs
+          // {
+            inherit cargoArtifacts;
+          });
+      in {
+        # Lean overlay
+        _module.args.pkgs = import nixpkgs {
+          inherit system;
+          overlays = [(lean4-nix.readToolchainFile ./lean-toolchain)];
+        };
+
+        packages = {
+          default = rustPkg;
+        };
+
+        # Provide a unified dev shell with Lean + Rust
+        devShells.default = pkgs.mkShell {
+          # Disable fortify hardening as it causes warnings with cargo debug builds
+          hardeningDisable = ["fortify"];
+          # Add libclang for FFI with rust-bindgen
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          packages = with pkgs; [
+            clang
+            rustToolchain
+            lean.lean-all # Includes Lean compiler, lake, stdlib, etc.
+            # gmp
+            # cargo-deny
+            # valgrind
+          ];
+        };
+
+        formatter = pkgs.alejandra;
+      };
+    };
+}
