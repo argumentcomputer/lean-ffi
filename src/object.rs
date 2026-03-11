@@ -746,7 +746,6 @@ impl LeanCtor {
     pub fn set_scalar_bool(&self, num_objs: usize, offset: usize, val: bool) {
         self.set_scalar_u8(num_objs, offset, val as u8);
     }
-
 }
 
 // =============================================================================

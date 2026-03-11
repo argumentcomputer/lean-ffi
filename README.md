@@ -22,7 +22,7 @@ of arbitrary Lean object types, which can then be used directly in FFI
 functions to disambiguate between other `LeanObject`s. Some examples can be found in the
 [Ix project](https://github.com/argumentcomputer/ix/blob/main/src/lean.rs).
 To construct custom data in Rust, the user can define their own constructor methods
-using `LeanCtor` (e.g. [in Ix](https://github.com/argumentcomputer/ix/blob/main/src/ffi/iroh.rs)).
+using `LeanCtor` (e.g. [`PutResponse`](https://github.com/argumentcomputer/ix/blob/main/src/ffi/iroh.rs)).
 It is possible to use `LeanObject` or `*const c_void` directly in an `extern "C" fn`,
 but this is generally not recommended as internal Rust functions may pass in the wrong object
 more easily, and any low-level constructors would not be hidden behind the
@@ -35,7 +35,7 @@ Lean, making it responsible for deallocation. If the data type is intended to be
 used as a black box by Lean, `ExternalClass` is a useful abstraction. It
 requires a function pointer for deallocation, meaning the Rust code must
 provide a function that properly frees the object's memory by dropping it.
-See [`KECCAK_CLASS`](src/ffi/keccak.rs) for an example.
+See [`KECCAK_CLASS`](https://github.com/argumentcomputer/ix/blob/main/src/ffi/keccak.rs) for an example.
 
 ## Notes
 
