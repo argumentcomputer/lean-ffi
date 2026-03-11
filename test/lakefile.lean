@@ -20,6 +20,6 @@ section FFI
 extern_lib lean_ffi_rs pkg := do
   proc { cmd := "cargo", args := #["build", "--release"], cwd := pkg.dir } (quiet := true)
   let libName := nameToStaticLib "lean_ffi_rs"
-  inputBinFile $ pkg.dir / "target" / "release" / libName
+  inputBinFile $ pkg.dir / ".." / "target" / "release" / libName
 
 end FFI
