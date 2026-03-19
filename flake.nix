@@ -68,16 +68,9 @@
               pkgs.libiconv
             ];
         };
-        cargoArtifacts = craneLib.buildDepsOnly craneArgs;
-
         rustPkg = craneLib.buildPackage (craneArgs
           // {
-            inherit cargoArtifacts;
             cargoExtraArgs = "--locked --workspace";
-            postInstall = ''
-              mkdir -p $out/lib
-              cp target/release/liblean_ffi_rs.a $out/lib/
-            '';
           });
 
         # Lake test package
@@ -122,6 +115,7 @@
           packages = with pkgs; [
             clang
             rustToolchain
+            rust-analyzer
             lean.lean-all # Includes Lean compiler, lake, stdlib, etc.
           ];
         };

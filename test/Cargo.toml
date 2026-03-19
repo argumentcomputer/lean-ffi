@@ -8,3 +8,9 @@ crate-type = ["staticlib"]
 
 [dependencies]
 lean-ffi = { path = ".." }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -9,7 +9,7 @@ use std::mem::MaybeUninit;
 
 use num_bigint::BigUint;
 
-use crate::object::{LeanNat, LeanObject};
+use crate::object::{LeanNat, LeanOwned, LeanRef};
 
 /// Arbitrary-precision natural number, wrapping `BigUint`.
 #[derive(Hash, PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
@@ -36,15 +36,15 @@ impl Nat {
         u64::try_from(&self.0).ok()
     }
 
-    /// Decode a `Nat` from a `LeanObject`. Handles both scalar (unboxed)
+    /// Decode a `Nat` from any Lean reference. Handles both scalar (unboxed)
     /// and heap-allocated (GMP `mpz_object`) representations.
-    pub fn from_obj(obj: LeanObject) -> Nat {
+    pub fn from_obj(obj: &impl LeanRef) -> Nat {
         if obj.is_scalar() {
             let u = obj.unbox_usize();
             Nat(BigUint::from_bytes_le(&u.to_le_bytes()))
         } else {
             // Heap-allocated big integer (mpz_object)
-            let mpz: &MpzObject = unsafe { &*obj.as_ptr().cast() };
+            let mpz: &MpzObject = unsafe { &*obj.as_raw().cast() };
             Nat(mpz.m_value.to_biguint())
         }
     }
@@ -59,16 +59,16 @@ impl Nat {
         self.0.to_bytes_le()
     }
 
-    /// Convert this `Nat` into a Lean `Nat` object.
-    pub fn to_lean(&self) -> LeanNat {
+    /// Convert this `Nat` into a Lean `Nat` object (always owned).
+    pub fn to_lean(&self) -> LeanNat<LeanOwned> {
         // Try to get as u64 first
         if let Some(val) = self.to_u64() {
             // For small values that fit in a boxed scalar (max value is usize::MAX >> 1)
             if val <= (usize::MAX >> 1) as u64 {
                 #[allow(clippy::cast_possible_truncation)]
-                return LeanNat::new(LeanObject::box_usize(val as usize));
+                return LeanNat::new(LeanOwned::box_usize(val as usize));
             }
-            return LeanNat::new(LeanObject::from_nat_u64(val));
+            return LeanNat::new(LeanOwned::from_nat_u64(val));
         }
         // For values larger than u64, convert to limbs and use GMP
         let bytes = self.to_le_bytes();
@@ -149,20 +149,19 @@ unsafe extern "C" {
 }
 
 /// Create a Lean `Nat` from a little-endian array of u64 limbs.
-/// Replaces the C function `c_lean_nat_from_limbs` from `ixon_ffi.c`.
 /// # Safety
 /// `limbs` must be valid for reading `num_limbs` elements.
-pub unsafe fn lean_nat_from_limbs(num_limbs: usize, limbs: *const u64) -> LeanObject {
+pub unsafe fn lean_nat_from_limbs(num_limbs: usize, limbs: *const u64) -> LeanOwned {
     if num_limbs == 0 {
-        return LeanObject::box_usize(0);
+        return LeanOwned::box_usize(0);
     }
     let first = unsafe { *limbs };
     if num_limbs == 1 && first <= LEAN_MAX_SMALL_NAT {
         #[allow(clippy::cast_possible_truncation)] // only targets 64-bit
-        return LeanObject::box_usize(first as usize);
+        return LeanOwned::box_usize(first as usize);
     }
     if num_limbs == 1 {
-        return unsafe { LeanObject::from_lean_ptr(lean_uint64_to_nat(first)) };
+        return unsafe { LeanOwned::from_raw(lean_uint64_to_nat(first)) };
     }
     // Multi-limb: use GMP
     unsafe {
@@ -174,6 +173,6 @@ pub unsafe fn lean_nat_from_limbs(num_limbs: usize, limbs: *const u64) -> LeanOb
         // lean_alloc_mpz deep-copies; we must free the original
         let result = lean_alloc_mpz(value.as_mut_ptr());
         mpz_clear(value.as_mut_ptr());
-        LeanObject::from_raw(result)
+        LeanOwned::from_raw(result.cast())
     }
 }

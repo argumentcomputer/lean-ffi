@@ -12,7 +12,6 @@ lean_lib Tests
 @[test_driver]
 lean_exe LeanFFITests where
   root := `Tests.Main
-  supportInterpreter := true
 
 section FFI
 
@@ -23,3 +22,4 @@ extern_lib lean_ffi_rs pkg := do
   inputBinFile $ pkg.dir / ".." / "target" / "release" / libName
 
 end FFI
+
