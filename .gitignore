@@ -1,9 +1,9 @@
 # Rust
-**/target
+target
 
 # Lean
-**/.lake
+.lake
 
 # Nix
-**/result
+result
 .direnv/

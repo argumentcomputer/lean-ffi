@@ -26,6 +26,14 @@ const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 // =============================================================================
 // LeanRef trait — shared interface for owned and borrowed pointers
 // =============================================================================
+//
+// lean.h base object header (8 bytes):
+//   typedef struct {
+//       int      m_rc;       // >0 single-threaded, <0 multi-threaded, 0 persistent
+//       unsigned m_cs_sz:16;
+//       unsigned m_other:8;  // num_objs (ctors) or element size (scalar arrays)
+//       unsigned m_tag:8;    // object type tag (0–243 ctor, 246 array, 248 sarray, ...)
+//   } lean_object;
 
 /// Trait for types that hold a reference to a Lean object (owned or borrowed).
 ///
@@ -172,6 +180,7 @@ impl LeanOwned {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0;
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -270,6 +279,9 @@ impl<'a> LeanBorrowed<'a> {
 // =============================================================================
 // LeanNat — Nat (scalar or heap mpz)
 // =============================================================================
+//
+// Small Nat: tagged scalar via `lean_box(n)` for n ≤ LEAN_MAX_SMALL_NAT (2^63-1 on 64-bit).
+// Big Nat:   heap object with m_tag == LeanMPZ (250), containing a GMP mpz_t.
 
 /// Typed wrapper for a Lean `Nat` (small = tagged scalar, big = heap `mpz_object`).
 #[repr(transparent)]
@@ -302,6 +314,7 @@ impl LeanNat<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -319,6 +332,7 @@ impl From<LeanNat<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanNat<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -327,6 +341,9 @@ impl From<LeanNat<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanBool — Bool (unboxed scalar: false = 0, true = 1)
 // =============================================================================
+//
+// lean.h: Bool.false = lean_box(0), Bool.true = lean_box(1).
+// Always a tagged scalar — never heap-allocated.
 
 /// Typed wrapper for a Lean `Bool` (always an unboxed scalar: false = 0, true = 1).
 #[repr(transparent)]
@@ -366,6 +383,7 @@ impl From<LeanBool<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanBool<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -374,6 +392,14 @@ impl From<LeanBool<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanArray — Array α (tag LEAN_TAG_ARRAY)
 // =============================================================================
+//
+// lean.h:
+//   typedef struct {
+//       lean_object   m_header;
+//       size_t        m_size;
+//       size_t        m_capacity;
+//       lean_object * m_data[];
+//   } lean_array_object;
 
 /// Typed wrapper for a Lean `Array α` object (tag `LEAN_TAG_ARRAY`).
 #[repr(transparent)]
@@ -471,6 +497,7 @@ impl LeanArray<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -480,6 +507,7 @@ impl From<LeanArray<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanArray<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -488,6 +516,14 @@ impl From<LeanArray<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanByteArray — ByteArray (tag LEAN_TAG_SCALAR_ARRAY)
 // =============================================================================
+//
+// lean.h:
+//   typedef struct {
+//       lean_object m_header;
+//       size_t      m_size;
+//       size_t      m_capacity;
+//       uint8_t     m_data[];
+//   } lean_sarray_object;
 
 /// Typed wrapper for a Lean `ByteArray` object (tag `LEAN_TAG_SCALAR_ARRAY`).
 #[repr(transparent)]
@@ -572,6 +608,7 @@ impl LeanByteArray<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -581,6 +618,7 @@ impl From<LeanByteArray<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanByteArray<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -589,6 +627,15 @@ impl From<LeanByteArray<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanString — String (tag LEAN_TAG_STRING)
 // =============================================================================
+//
+// lean.h:
+//   typedef struct {
+//       lean_object m_header;
+//       size_t      m_size;      // byte length including NUL terminator
+//       size_t      m_capacity;
+//       size_t      m_length;    // UTF-8 character count
+//       char        m_data[];
+//   } lean_string_object;
 
 /// Typed wrapper for a Lean `String` object (tag `LEAN_TAG_STRING`).
 #[repr(transparent)]
@@ -658,6 +705,7 @@ impl LeanString<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -667,6 +715,7 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanString<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -675,6 +724,15 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanCtor — Constructor objects (tag 0–LEAN_MAX_CTOR_TAG)
 // =============================================================================
+//
+// lean.h:
+//   typedef struct {
+//       lean_object   m_header;   // m_tag = ctor index, m_other = num_objs
+//       lean_object * m_objs[];   // object fields, then scalar fields in memory
+//   } lean_ctor_object;
+//
+// Memory layout after m_header:
+//   [obj_0, obj_1, ..., obj_{n-1}] [usize_0, ...] [scalar bytes (descending size)]
 
 /// Typed wrapper for a Lean constructor object (tag 0–`LEAN_MAX_CTOR_TAG`).
 #[repr(transparent)]
@@ -793,6 +851,7 @@ impl LeanCtor<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -834,6 +893,7 @@ impl From<LeanCtor<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanCtor<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -842,6 +902,18 @@ impl From<LeanCtor<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanExternal<T> — External objects (tag LEAN_TAG_EXTERNAL)
 // =============================================================================
+//
+// lean.h:
+//   typedef struct {
+//       lean_external_finalize_proc m_finalize;
+//       lean_external_foreach_proc  m_foreach;
+//   } lean_external_class;
+//
+//   typedef struct {
+//       lean_object           m_header;
+//       lean_external_class * m_class;
+//       void *                m_data;
+//   } lean_external_object;
 
 /// Typed wrapper for a Lean external object (tag `LEAN_TAG_EXTERNAL`) holding a `T`.
 #[repr(transparent)]
@@ -888,6 +960,7 @@ impl<T> LeanExternal<T, LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -912,6 +985,7 @@ impl<T> From<LeanExternal<T, LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanExternal<T, LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -956,6 +1030,10 @@ impl ExternalClass {
 // =============================================================================
 // LeanList — List α
 // =============================================================================
+//
+// Constructor-based inductive (no special lean.h struct):
+//   List.nil  = lean_box(0)                          (tagged scalar)
+//   List.cons = lean_ctor_object, tag 1, 2 obj fields (head, tail)
 
 /// Typed wrapper for a Lean `List α` (nil = scalar `lean_box(0)`, cons = ctor tag 1).
 #[repr(transparent)]
@@ -1018,6 +1096,7 @@ impl LeanList<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -1055,6 +1134,7 @@ impl From<LeanList<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanList<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -1063,6 +1143,10 @@ impl From<LeanList<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanOption — Option α
 // =============================================================================
+//
+// Constructor-based inductive (no special lean.h struct):
+//   Option.none = lean_box(0)                              (tagged scalar)
+//   Option.some = lean_ctor_object, tag 1, 1 obj field (value)
 
 /// Typed wrapper for a Lean `Option α` (none = scalar, some = ctor tag 1).
 #[repr(transparent)]
@@ -1132,6 +1216,7 @@ impl LeanOption<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -1141,6 +1226,7 @@ impl From<LeanOption<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanOption<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -1149,6 +1235,10 @@ impl From<LeanOption<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanExcept — Except ε α
 // =============================================================================
+//
+// Constructor-based inductive (no special lean.h struct):
+//   Except.error = lean_ctor_object, tag 0, 1 obj field (error value)
+//   Except.ok    = lean_ctor_object, tag 1, 1 obj field (ok value)
 
 /// Typed wrapper for a Lean `Except ε α` (error = ctor tag 0, ok = ctor tag 1).
 #[repr(transparent)]
@@ -1229,6 +1319,7 @@ impl LeanExcept<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -1238,6 +1329,7 @@ impl From<LeanExcept<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanExcept<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -1246,6 +1338,15 @@ impl From<LeanExcept<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanIOResult — EStateM.Result (BaseIO.Result)
 // =============================================================================
+//
+// Constructor-based inductive (no special lean.h struct):
+//   EStateM.Result.ok    = lean_ctor_object, tag 0, 2 obj fields (value, state)
+//   EStateM.Result.error = lean_ctor_object, tag 1, 2 obj fields (error, state)
+//
+// lean.h accessors:
+//   lean_io_result_is_ok(r)        → lean_ptr_tag(r) == 0
+//   lean_io_result_get_value(r)    → lean_ctor_get(r, 0)
+//   lean_io_result_get_error(r)    → lean_ctor_get(r, 0)
 
 /// Typed wrapper for a Lean `BaseIO.Result α` (`EStateM.Result`).
 /// ok = ctor tag 0 (value, world), error = ctor tag 1 (error, world).
@@ -1300,6 +1401,7 @@ impl LeanIOResult<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -1309,6 +1411,7 @@ impl From<LeanIOResult<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanIOResult<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -1317,6 +1420,9 @@ impl From<LeanIOResult<LeanOwned>> for LeanOwned {
 // =============================================================================
 // LeanProd — Prod α β (pair)
 // =============================================================================
+//
+// Constructor-based inductive (no special lean.h struct):
+//   Prod.mk = lean_ctor_object, tag 0, 2 obj fields (fst, snd)
 
 /// Typed wrapper for a Lean `Prod α β` (ctor tag 0, 2 object fields).
 #[repr(transparent)]
@@ -1367,6 +1473,7 @@ impl LeanProd<LeanOwned> {
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
     }
@@ -1376,6 +1483,7 @@ impl From<LeanProd<LeanOwned>> for LeanOwned {
     #[inline]
     fn from(x: LeanProd<LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         LeanOwned(ptr)
     }
@@ -1503,6 +1611,7 @@ impl LeanShared {
     #[inline]
     pub fn into_owned(self) -> LeanOwned {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         unsafe { LeanOwned::from_raw(ptr) }
     }

@@ -101,6 +101,7 @@ macro_rules! lean_domain_type {
       #[inline]
       pub fn into_raw(self) -> *mut $crate::include::lean_object {
         let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
         std::mem::forget(self);
         ptr
       }
@@ -110,6 +111,7 @@ macro_rules! lean_domain_type {
       #[inline]
       fn from(x: $name<$crate::object::LeanOwned>) -> Self {
         let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
         std::mem::forget(x);
         unsafe { $crate::object::LeanOwned::from_raw(ptr) }
       }

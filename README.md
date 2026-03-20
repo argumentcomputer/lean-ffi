@@ -21,12 +21,17 @@ The core types are:
   Corresponds to `b_lean_obj_arg` in the C FFI. Used when Lean declares a parameter
   with `@&`.
 
-- **`LeanRef`** — Trait implemented by both `LeanOwned` and `LeanBorrowed`, providing
-  shared read-only operations like `as_raw()`, `is_scalar()`, `tag()`, and unboxing
-  methods.
+- **`LeanShared`** — A thread-safe owned reference. Wraps `LeanOwned` after calling
+  `lean_mark_mt` on the object graph, which transitions all reachable objects to
+  multi-threaded mode with atomic refcounting. `Send + Sync`. Use `borrow()` to get
+  a `LeanBorrowed<'_>` for reading, `into_owned()` to unwrap back to `LeanOwned`.
 
-Both are safe for persistent objects (`m_rc == 0`) — `lean_inc_ref` and `lean_dec_ref`
-are no-ops when `m_rc == 0`.
+- **`LeanRef`** — Trait implemented by `LeanOwned`, `LeanBorrowed`, and `LeanShared`,
+  providing shared read-only operations like `as_raw()`, `is_scalar()`, `tag()`, and
+  unboxing methods.
+
+All reference types are safe for persistent objects (`m_rc == 0`) — `lean_inc_ref` and
+`lean_dec_ref` are no-ops when `m_rc == 0`.
 
 ## Domain Types
 
