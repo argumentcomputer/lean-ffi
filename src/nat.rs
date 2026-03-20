@@ -40,8 +40,7 @@ impl Nat {
     /// and heap-allocated (GMP `mpz_object`) representations.
     pub fn from_obj(obj: &impl LeanRef) -> Nat {
         if obj.is_scalar() {
-            let u = obj.unbox_usize();
-            Nat(BigUint::from_bytes_le(&u.to_le_bytes()))
+            Nat(BigUint::from(obj.unbox_usize() as u64))
         } else {
             // Heap-allocated big integer (mpz_object)
             let mpz: &MpzObject = unsafe { &*obj.as_raw().cast() };
@@ -70,14 +69,8 @@ impl Nat {
             }
             return LeanNat::new(LeanOwned::from_nat_u64(val));
         }
-        // For values larger than u64, convert to limbs and use GMP
-        let bytes = self.to_le_bytes();
-        let mut limbs: Vec<u64> = Vec::with_capacity(bytes.len().div_ceil(8));
-        for chunk in bytes.chunks(8) {
-            let mut arr = [0u8; 8];
-            arr[..chunk.len()].copy_from_slice(chunk);
-            limbs.push(u64::from_le_bytes(arr));
-        }
+        // For values larger than u64, access limbs directly (no byte round-trip)
+        let limbs = self.0.to_u64_digits();
         LeanNat::new(unsafe { lean_nat_from_limbs(limbs.len(), limbs.as_ptr()) })
     }
 }

@@ -176,6 +176,13 @@ impl LeanRef for LeanOwned {
 }
 
 impl LeanOwned {
+    /// Borrow this owned reference. The returned `LeanBorrowed` is
+    /// lifetime-bounded to `&self`. No refcount change.
+    #[inline]
+    pub fn borrow(&self) -> LeanBorrowed<'_> {
+        unsafe { LeanBorrowed::from_raw(self.0) }
+    }
+
     /// Wrap a raw pointer, taking ownership of the reference count.
     ///
     /// # Safety
@@ -1185,6 +1192,24 @@ impl<T: Into<LeanOwned>> FromIterator<T> for LeanList<LeanOwned> {
     }
 }
 
+impl<'a> LeanList<LeanBorrowed<'a>> {
+    /// Iterate elements with the original borrow lifetime `'a`.
+    ///
+    /// Unlike [`iter()`](LeanList::iter) (which ties the output lifetime to
+    /// `&self`), this preserves the lifetime of the underlying Lean objects.
+    /// Use this when the list is a local `Copy` value and the elements need to
+    /// outlive the list binding.
+    #[inline]
+    pub fn into_iter(self) -> LeanListIter<'a> {
+        LeanListIter(self.0)
+    }
+
+    /// Collect elements into a `Vec` with the original borrow lifetime.
+    pub fn to_vec(self) -> Vec<LeanBorrowed<'a>> {
+        self.into_iter().collect()
+    }
+}
+
 /// Iterator over the elements of a `LeanList`.
 pub struct LeanListIter<'a>(LeanBorrowed<'a>);
 
@@ -1646,21 +1671,32 @@ impl<'a> LeanBorrowed<'a> {
 
 /// Thread-safe owned Lean object with atomic refcounting.
 ///
-/// Created by calling [`lean_mark_mt`] on the object graph, which transitions
-/// all reachable objects from single-threaded to multi-threaded mode.
-/// After marking, [`lean_inc_ref`] / [`lean_dec_ref`] use atomic operations,
-/// so [`LeanOwned`]'s existing `Clone` and `Drop` are thread-safe.
+/// Lean objects track refcounts in `m_rc`:
+/// - `m_rc > 0` → single-threaded (ST): non-atomic inc/dec
+/// - `m_rc < 0` → multi-threaded (MT): atomic inc/dec (negative magnitude is the count)
+/// - `m_rc == 0` → persistent: inc/dec are no-ops
 ///
-/// Scalars (tagged pointers with bit 0 set) and persistent objects
-/// (`m_rc == 0`) are unaffected by MT marking.
+/// [`LeanShared::new`] calls `lean_mark_mt` which recursively transitions
+/// the entire reachable object graph from ST to MT by negating `m_rc`.
+/// After marking, `lean_inc_ref` uses `atomic_fetch_sub` (subtracting makes
+/// the count more negative) and `lean_dec_ref_cold` uses `atomic_fetch_add`
+/// (adding towards zero; freeing when previous value was -1).
+///
+/// This means [`LeanOwned`]'s existing `Clone` (`lean_inc_ref`) and `Drop`
+/// (`lean_dec_ref`) are automatically thread-safe on MT-marked objects —
+/// no custom refcount logic is needed in `LeanShared`.
+///
+/// Calling `lean_mark_mt` on an already-MT object is a single branch
+/// (`lean_is_st` check) with no traversal, so it's safe to mark
+/// sub-objects of an already-marked parent.
 #[repr(transparent)]
 pub struct LeanShared(LeanOwned);
 
 // SAFETY: lean_mark_mt transitions the entire reachable object graph to
-// multi-threaded mode. After marking, lean_inc_ref uses atomic operations
-// for refcount increments, and lean_dec_ref delegates to lean_dec_ref_cold
-// which also handles MT objects atomically. This makes Clone (inc_ref) and
-// Drop (dec_ref) thread-safe.
+// multi-threaded mode (m_rc negated). After marking:
+// - lean_inc_ref: atomic_fetch_sub(m_rc, 1) — makes count more negative
+// - lean_dec_ref_cold: atomic_fetch_add(m_rc, 1) — frees when previous == -1
+// This makes Clone (inc_ref) and Drop (dec_ref) thread-safe.
 unsafe impl Send for LeanShared {}
 unsafe impl Sync for LeanShared {}
 
