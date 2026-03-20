@@ -68,30 +68,23 @@
               pkgs.libiconv
             ];
         };
-        rustPkg = craneLib.buildPackage (craneArgs
-          // {
-            cargoExtraArgs = "--locked --workspace";
-          });
+        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --features test-ffi";});
 
         # Lake test package
         lake2nix = pkgs.callPackage lean4-nix.lake {};
-        lakeDeps = lake2nix.buildDeps {
-          src = ./test;
-        };
         lakeTest = lake2nix.mkPackage {
           name = "LeanFFITests";
-          inherit lakeDeps;
-          src = ./test;
+          src = ./.;
           # Don't build the Rust static lib with Lake, since we build it with Crane
           postPatch = ''
-            substituteInPlace lakefile.lean --replace-fail 'proc { cmd := "cargo"' '--proc { cmd := "cargo"'
+            substituteInPlace lakefile.lean \
+              --replace-fail 'proc { cmd := "cargo"' '--proc { cmd := "cargo"' \
+              --replace-fail 'proc { cmd := "cp"' '--proc { cmd := "cp"'
           '';
-          # Copy the Rust static lib from Crane so Lake can find it.
-          # The lakefile references `pkg.dir / ".." / "target" / "release"` since
-          # the workspace root owns the target dir.
+          # Link the Rust static lib so Lake can find it
           postConfigure = ''
-            mkdir -p ../target/release
-            ln -s ${rustPkg}/lib/liblean_ffi_rs.a ../target/release/
+            mkdir -p target/release
+            ln -s ${rustPkg}/lib/liblean_ffi.a target/release/liblean_ffi_test.a
           '';
         };
       in {
