@@ -1,10 +1,13 @@
-[workspace]
-members = ["test"]
-
 [package]
 name = "lean-ffi"
 version = "0.1.0"
 edition = "2024"
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[features]
+test-ffi = []
 
 [dependencies]
 num-bigint = "0.4.6"
@@ -12,3 +15,9 @@ num-bigint = "0.4.6"
 [build-dependencies]
 bindgen = "0.72"
 cc = "1"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

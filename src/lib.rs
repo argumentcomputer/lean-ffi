@@ -23,6 +23,9 @@ pub mod include {
 pub mod nat;
 pub mod object;
 
+#[cfg(feature = "test-ffi")]
+mod test_ffi;
+
 use std::ffi::{CString, c_void};
 
 /// Create a CString from a str, stripping any interior null bytes.

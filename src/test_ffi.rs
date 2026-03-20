@@ -9,8 +9,8 @@
 
 use std::sync::LazyLock;
 
-use lean_ffi::nat::Nat;
-use lean_ffi::object::{
+use crate::nat::Nat;
+use crate::object::{
     ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor, LeanExcept,
     LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption, LeanOwned, LeanProd, LeanRef,
     LeanString,
@@ -20,7 +20,7 @@ use lean_ffi::object::{
 // Domain types for Lean structures
 // =============================================================================
 
-lean_ffi::lean_domain_type! {
+crate::lean_domain_type! {
     /// Lean `Point` — structure Point where x : Nat; y : Nat
     LeanPoint;
     /// Lean `NatTree` — inductive NatTree | leaf : Nat → NatTree | node : NatTree → NatTree → NatTree
