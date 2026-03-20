@@ -1200,9 +1200,7 @@ pub extern "C" fn rs_shared_parallel_nat(
     let mut handles = Vec::new();
     for _ in 0..n_threads {
         let shared_clone = shared.clone();
-        handles.push(thread::spawn(move || {
-            Nat::from_obj(&shared_clone.borrow())
-        }));
+        handles.push(thread::spawn(move || Nat::from_obj(&shared_clone.borrow())));
     }
 
     // All threads should read the same value
@@ -1269,9 +1267,7 @@ pub extern "C" fn rs_shared_contention_stress(
 /// Test into_owned: mark as MT, convert back to LeanOwned, read value.
 /// Verifies the MT-marked object is still usable after unwrapping.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_into_owned(
-    nat: LeanNat<LeanBorrowed<'_>>,
-) -> LeanNat<LeanOwned> {
+pub extern "C" fn rs_shared_into_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
     let shared = LeanShared::new(nat.inner().to_owned_ref());
     let cloned = shared.clone();
     // Convert one back to LeanOwned
@@ -1326,13 +1322,14 @@ pub extern "C" fn rs_shared_persistent_nat(
     let mut handles = Vec::new();
     for _ in 0..n_threads {
         let shared_clone = shared.clone();
-        handles.push(thread::spawn(move || {
-            Nat::from_obj(&shared_clone.borrow())
-        }));
+        handles.push(thread::spawn(move || Nat::from_obj(&shared_clone.borrow())));
     }
 
     let results: Vec<Nat> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     let first = &results[0];
-    assert!(results.iter().all(|r| r == first), "persistent MT read inconsistency");
+    assert!(
+        results.iter().all(|r| r == first),
+        "persistent MT read inconsistency"
+    );
     first.to_lean()
 }

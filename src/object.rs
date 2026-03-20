@@ -120,7 +120,6 @@ pub trait LeanRef: Clone {
     }
 }
 
-
 // =============================================================================
 // LeanOwned — Owned Lean object pointer (RAII)
 // =============================================================================
@@ -298,9 +297,13 @@ impl<R: LeanRef + Copy> Copy for LeanNat<R> {}
 
 impl<R: LeanRef> LeanNat<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 }
 
 impl LeanNat<LeanOwned> {
@@ -360,9 +363,13 @@ impl<R: LeanRef + Copy> Copy for LeanBool<R> {}
 
 impl<R: LeanRef> LeanBool<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     /// Decode to a Rust `bool`.
     #[inline]
@@ -416,9 +423,13 @@ impl<R: LeanRef + Copy> Copy for LeanArray<R> {}
 
 impl<R: LeanRef> LeanArray<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     pub fn len(&self) -> usize {
         unsafe { include::lean_array_size(self.0.as_raw()) }
@@ -540,9 +551,13 @@ impl<R: LeanRef + Copy> Copy for LeanByteArray<R> {}
 
 impl<R: LeanRef> LeanByteArray<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     pub fn len(&self) -> usize {
         unsafe { include::lean_sarray_size(self.0.as_raw()) }
@@ -652,9 +667,13 @@ impl<R: LeanRef + Copy> Copy for LeanString<R> {}
 
 impl<R: LeanRef> LeanString<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     /// Number of data bytes (excluding the trailing NUL).
     pub fn byte_len(&self) -> usize {
@@ -789,22 +808,34 @@ impl<R: LeanRef> LeanCtor<R> {
     }
 
     pub fn get_u8(&self, num_objs: usize, offset: usize) -> u8 {
-        unsafe { include::lean_ctor_get_uint8(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_uint8(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     pub fn get_u16(&self, num_objs: usize, offset: usize) -> u16 {
-        unsafe { include::lean_ctor_get_uint16(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_uint16(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     pub fn get_u32(&self, num_objs: usize, offset: usize) -> u32 {
-        unsafe { include::lean_ctor_get_uint32(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_uint32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     pub fn get_u64(&self, num_objs: usize, offset: usize) -> u64 {
-        unsafe { include::lean_ctor_get_uint64(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_uint64(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     pub fn get_f64(&self, num_objs: usize, offset: usize) -> f64 {
-        unsafe { include::lean_ctor_get_float(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_float(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     pub fn get_f32(&self, num_objs: usize, offset: usize) -> f32 {
-        unsafe { include::lean_ctor_get_float32(self.0.as_raw(), Self::scalar_offset(num_objs, offset)) }
+        unsafe {
+            include::lean_ctor_get_float32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+        }
     }
     /// Read a `usize` at slot `slot` past `num_objs` object fields.
     /// Uses a **slot index** (not byte offset).
@@ -861,28 +892,66 @@ impl LeanCtor<LeanOwned> {
     // -------------------------------------------------------------------------
 
     pub fn set_u8(&self, num_objs: usize, offset: usize, val: u8) {
-        unsafe { include::lean_ctor_set_uint8(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint8(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     pub fn set_u16(&self, num_objs: usize, offset: usize, val: u16) {
-        unsafe { include::lean_ctor_set_uint16(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint16(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     pub fn set_u32(&self, num_objs: usize, offset: usize, val: u32) {
-        unsafe { include::lean_ctor_set_uint32(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint32(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     pub fn set_u64(&self, num_objs: usize, offset: usize, val: u64) {
-        unsafe { include::lean_ctor_set_uint64(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint64(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     pub fn set_f64(&self, num_objs: usize, offset: usize, val: f64) {
-        unsafe { include::lean_ctor_set_float(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_float(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     pub fn set_f32(&self, num_objs: usize, offset: usize, val: f32) {
-        unsafe { include::lean_ctor_set_float32(self.0.as_raw(), Self::scalar_offset(num_objs, offset), val); }
+        unsafe {
+            include::lean_ctor_set_float32(
+                self.0.as_raw(),
+                Self::scalar_offset(num_objs, offset),
+                val,
+            );
+        }
     }
     /// Set a `usize` at slot `slot` past `num_objs` object fields.
     /// Uses a **slot index** (not byte offset).
     #[allow(clippy::cast_possible_truncation)]
     pub fn set_usize(&self, num_objs: usize, slot: usize, val: usize) {
-        unsafe { include::lean_ctor_set_usize(self.0.as_raw(), (num_objs + slot) as u32, val); }
+        unsafe {
+            include::lean_ctor_set_usize(self.0.as_raw(), (num_objs + slot) as u32, val);
+        }
     }
     pub fn set_bool(&self, num_objs: usize, offset: usize, val: bool) {
         self.set_u8(num_objs, offset, val as u8);
@@ -1050,9 +1119,13 @@ impl<R: LeanRef + Copy> Copy for LeanList<R> {}
 
 impl<R: LeanRef> LeanList<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     pub fn is_nil(&self) -> bool {
         self.0.is_scalar()
@@ -1163,9 +1236,13 @@ impl<R: LeanRef + Copy> Copy for LeanOption<R> {}
 
 impl<R: LeanRef> LeanOption<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
     #[inline]
     pub fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
         unsafe { LeanBorrowed::from_raw(self.0.as_raw()) }.as_ctor()
@@ -1255,9 +1332,13 @@ impl<R: LeanRef + Copy> Copy for LeanExcept<R> {}
 
 impl<R: LeanRef> LeanExcept<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
     #[inline]
     pub fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
         unsafe { LeanBorrowed::from_raw(self.0.as_raw()) }.as_ctor()
@@ -1364,9 +1445,13 @@ impl<R: LeanRef + Copy> Copy for LeanIOResult<R> {}
 
 impl<R: LeanRef> LeanIOResult<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
     #[inline]
     pub fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
         unsafe { LeanBorrowed::from_raw(self.0.as_raw()) }.as_ctor()
@@ -1439,9 +1524,13 @@ impl<R: LeanRef + Copy> Copy for LeanProd<R> {}
 
 impl<R: LeanRef> LeanProd<R> {
     #[inline]
-    pub fn inner(&self) -> &R { &self.0 }
+    pub fn inner(&self) -> &R {
+        &self.0
+    }
     #[inline]
-    pub fn as_raw(&self) -> *mut include::lean_object { self.0.as_raw() }
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
 
     /// Get a borrowed reference to the first element.
     pub fn fst(&self) -> LeanBorrowed<'_> {
@@ -1589,7 +1678,9 @@ impl LeanShared {
     #[inline]
     pub fn new(owned: LeanOwned) -> Self {
         if !owned.is_scalar() && !owned.is_persistent() {
-            unsafe { include::lean_mark_mt(owned.as_raw()); }
+            unsafe {
+                include::lean_mark_mt(owned.as_raw());
+            }
         }
         Self(owned)
     }

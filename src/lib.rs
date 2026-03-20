@@ -118,4 +118,3 @@ macro_rules! lean_domain_type {
     }
   )*};
 }
-
