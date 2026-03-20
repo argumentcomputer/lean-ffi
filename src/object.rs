@@ -1192,7 +1192,10 @@ impl<T: Into<LeanOwned>> FromIterator<T> for LeanList<LeanOwned> {
     }
 }
 
-impl<'a> LeanList<LeanBorrowed<'a>> {
+impl<'a> IntoIterator for LeanList<LeanBorrowed<'a>> {
+    type Item = LeanBorrowed<'a>;
+    type IntoIter = LeanListIter<'a>;
+
     /// Iterate elements with the original borrow lifetime `'a`.
     ///
     /// Unlike [`iter()`](LeanList::iter) (which ties the output lifetime to
@@ -1200,10 +1203,12 @@ impl<'a> LeanList<LeanBorrowed<'a>> {
     /// Use this when the list is a local `Copy` value and the elements need to
     /// outlive the list binding.
     #[inline]
-    pub fn into_iter(self) -> LeanListIter<'a> {
+    fn into_iter(self) -> LeanListIter<'a> {
         LeanListIter(self.0)
     }
+}
 
+impl<'a> LeanList<LeanBorrowed<'a>> {
     /// Collect elements into a `Vec` with the original borrow lifetime.
     pub fn to_vec(self) -> Vec<LeanBorrowed<'a>> {
         self.into_iter().collect()
