@@ -46,14 +46,16 @@ fn build_nat(n: &Nat) -> LeanOwned {
 
 /// Round-trip a Nat: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_nat(nat_ptr: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_roundtrip_nat(
+    nat_ptr: LeanNat<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let nat = Nat::from_obj(nat_ptr.inner());
     nat.to_lean()
 }
 
 /// Round-trip a String: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_string(
+pub(crate) extern "C" fn rs_roundtrip_string(
     s_ptr: LeanString<LeanBorrowed<'_>>,
 ) -> LeanString<LeanOwned> {
     let s = s_ptr.to_string();
@@ -62,7 +64,9 @@ pub extern "C" fn rs_roundtrip_string(
 
 /// Round-trip a Bool: decode from Lean, re-encode.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_bool(bool_ptr: LeanBool<LeanBorrowed<'_>>) -> LeanBool<LeanOwned> {
+pub(crate) extern "C" fn rs_roundtrip_bool(
+    bool_ptr: LeanBool<LeanBorrowed<'_>>,
+) -> LeanBool<LeanOwned> {
     let val = bool_ptr.to_bool();
     if val {
         LeanBool::new(LeanOwned::from_enum_tag(1))
@@ -73,7 +77,7 @@ pub extern "C" fn rs_roundtrip_bool(bool_ptr: LeanBool<LeanBorrowed<'_>>) -> Lea
 
 /// Round-trip a List Nat: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_list_nat(
+pub(crate) extern "C" fn rs_roundtrip_list_nat(
     list_ptr: LeanList<LeanBorrowed<'_>>,
 ) -> LeanList<LeanOwned> {
     let nats: Vec<Nat> = list_ptr.collect(|b| Nat::from_obj(&b));
@@ -83,7 +87,7 @@ pub extern "C" fn rs_roundtrip_list_nat(
 
 /// Round-trip an Array Nat: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_nat(
+pub(crate) extern "C" fn rs_roundtrip_array_nat(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let nats: Vec<Nat> = arr_ptr.map(|b| Nat::from_obj(&b));
@@ -96,7 +100,7 @@ pub extern "C" fn rs_roundtrip_array_nat(
 
 /// Round-trip a ByteArray: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_bytearray(
+pub(crate) extern "C" fn rs_roundtrip_bytearray(
     ba: LeanByteArray<LeanBorrowed<'_>>,
 ) -> LeanByteArray<LeanOwned> {
     LeanByteArray::from_bytes(ba.as_bytes())
@@ -104,7 +108,7 @@ pub extern "C" fn rs_roundtrip_bytearray(
 
 /// Round-trip an Option Nat: decode from Lean, re-encode to Lean.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_option_nat(
+pub(crate) extern "C" fn rs_roundtrip_option_nat(
     opt: LeanOption<LeanBorrowed<'_>>,
 ) -> LeanOption<LeanOwned> {
     if opt.inner().is_scalar() {
@@ -118,7 +122,7 @@ pub extern "C" fn rs_roundtrip_option_nat(
 
 /// Round-trip a Point (structure with x, y : Nat).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_point(
+pub(crate) extern "C" fn rs_roundtrip_point(
     point_ptr: LeanPoint<LeanBorrowed<'_>>,
 ) -> LeanPoint<LeanOwned> {
     let ctor = point_ptr.as_ctor();
@@ -132,7 +136,7 @@ pub extern "C" fn rs_roundtrip_point(
 
 /// Round-trip a NatTree (inductive: leaf Nat | node NatTree NatTree).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_nat_tree(
+pub(crate) extern "C" fn rs_roundtrip_nat_tree(
     tree_ptr: LeanNatTree<LeanBorrowed<'_>>,
 ) -> LeanNatTree<LeanOwned> {
     LeanNatTree::new(roundtrip_nat_tree_recursive(&tree_ptr.as_ctor()))
@@ -166,7 +170,7 @@ fn roundtrip_nat_tree_recursive(ctor: &LeanCtor<impl LeanRef>) -> LeanOwned {
 
 /// Round-trip a Prod Nat Nat: decode fst/snd, re-encode via LeanProd::new.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_prod_nat_nat(
+pub(crate) extern "C" fn rs_roundtrip_prod_nat_nat(
     pair: LeanProd<LeanBorrowed<'_>>,
 ) -> LeanProd<LeanOwned> {
     let fst = Nat::from_obj(&pair.fst());
@@ -180,7 +184,7 @@ pub extern "C" fn rs_roundtrip_prod_nat_nat(
 
 /// Round-trip an Except String Nat: decode ok/error, re-encode.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_except_string_nat(
+pub(crate) extern "C" fn rs_roundtrip_except_string_nat(
     exc: LeanExcept<LeanBorrowed<'_>>,
 ) -> LeanExcept<LeanOwned> {
     match exc.into_result() {
@@ -197,7 +201,9 @@ pub extern "C" fn rs_roundtrip_except_string_nat(
 
 /// Build an Except.error from a Rust string (tests LeanExcept::error_string).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_except_error_string(s: LeanString<LeanBorrowed<'_>>) -> LeanExcept<LeanOwned> {
+pub(crate) extern "C" fn rs_except_error_string(
+    s: LeanString<LeanBorrowed<'_>>,
+) -> LeanExcept<LeanOwned> {
     LeanExcept::error_string(&s.to_string())
 }
 
@@ -207,7 +213,7 @@ pub extern "C" fn rs_except_error_string(s: LeanString<LeanBorrowed<'_>>) -> Lea
 
 /// Build a successful IO result wrapping a Nat (tests LeanIOResult::ok).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_io_result_ok_nat(
+pub(crate) extern "C" fn rs_io_result_ok_nat(
     nat_ptr: LeanNat<LeanBorrowed<'_>>,
 ) -> LeanIOResult<LeanOwned> {
     let nat = Nat::from_obj(nat_ptr.inner());
@@ -216,7 +222,7 @@ pub extern "C" fn rs_io_result_ok_nat(
 
 /// Build an IO error from a string (tests LeanIOResult::error_string).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_io_result_error_string(
+pub(crate) extern "C" fn rs_io_result_error_string(
     s: LeanString<LeanBorrowed<'_>>,
 ) -> LeanIOResult<LeanOwned> {
     LeanIOResult::error_string(&s.to_string())
@@ -230,7 +236,7 @@ pub extern "C" fn rs_io_result_error_string(
 /// Lean layout: 1 obj field, then scalars by descending size: u64(0), u32(8), u8(12).
 /// Total scalar size: 8 + 4 + 1 = 13 bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_scalar_struct(
+pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     ptr: LeanScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
@@ -253,19 +259,19 @@ pub extern "C" fn rs_roundtrip_scalar_struct(
 
 /// Round-trip a UInt32 (passed as raw uint32_t by Lean FFI).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_uint32(val: u32) -> u32 {
+pub(crate) extern "C" fn rs_roundtrip_uint32(val: u32) -> u32 {
     val
 }
 
 /// Round-trip a UInt64 (passed as raw uint64_t by Lean FFI).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_uint64(val: u64) -> u64 {
+pub(crate) extern "C" fn rs_roundtrip_uint64(val: u64) -> u64 {
     val
 }
 
 /// Round-trip an Array UInt32.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_uint32(
+pub(crate) extern "C" fn rs_roundtrip_array_uint32(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let len = arr_ptr.len();
@@ -279,7 +285,7 @@ pub extern "C" fn rs_roundtrip_array_uint32(
 
 /// Round-trip an Array UInt64.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_uint64(
+pub(crate) extern "C" fn rs_roundtrip_array_uint64(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let len = arr_ptr.len();
@@ -309,7 +315,7 @@ static RUST_DATA_CLASS: LazyLock<ExternalClass> =
 /// Create a LeanExternal<RustData> from three Lean values.
 /// Note: label is @& (borrowed), x/y are scalar UInt64.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_external_create(
+pub(crate) extern "C" fn rs_external_create(
     x: u64,
     y: u64,
     label: LeanString<LeanBorrowed<'_>>,
@@ -325,7 +331,7 @@ pub extern "C" fn rs_external_create(
 
 /// Read the x field from a LeanExternal<RustData> (@& borrowed).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_external_get_x(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 {
+pub(crate) extern "C" fn rs_external_get_x(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 {
     let ext =
         unsafe { LeanExternal::<RustData, LeanBorrowed<'_>>::from_raw_borrowed(obj.as_raw()) };
     ext.get().x
@@ -333,7 +339,7 @@ pub extern "C" fn rs_external_get_x(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 
 
 /// Read the y field from a LeanExternal<RustData> (@& borrowed).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_external_get_y(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 {
+pub(crate) extern "C" fn rs_external_get_y(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 {
     let ext =
         unsafe { LeanExternal::<RustData, LeanBorrowed<'_>>::from_raw_borrowed(obj.as_raw()) };
     ext.get().y
@@ -341,7 +347,7 @@ pub extern "C" fn rs_external_get_y(obj: LeanRustData<LeanBorrowed<'_>>) -> u64 
 
 /// Read the label field from a LeanExternal<RustData> (@& borrowed).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_external_get_label(
+pub(crate) extern "C" fn rs_external_get_label(
     obj: LeanRustData<LeanBorrowed<'_>>,
 ) -> LeanString<LeanOwned> {
     let ext =
@@ -357,7 +363,7 @@ pub extern "C" fn rs_external_get_label(
 /// Lean layout: 1 obj, then descending size: u64(0), f64(8), u32(16), f32(20), u16(24), u8(26).
 /// Total scalar: 27 bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_ext_scalar_struct(
+pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
     ptr: LeanExtScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanExtScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
@@ -388,7 +394,7 @@ pub extern "C" fn rs_roundtrip_ext_scalar_struct(
 /// Lean layout: 1 obj field, then usize (slot 0), then u8 at scalar offset 0.
 /// Alloc: num_objs=1, scalar_sz=9 (8 for usize slot + 1 for u8).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_usize_struct(
+pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     ptr: LeanUSizeStruct<LeanBorrowed<'_>>,
 ) -> LeanUSizeStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
@@ -409,25 +415,25 @@ pub extern "C" fn rs_roundtrip_usize_struct(
 
 /// Round-trip a Float (f64) — passed as raw scalar across FFI.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_float(val: f64) -> f64 {
+pub(crate) extern "C" fn rs_roundtrip_float(val: f64) -> f64 {
     val
 }
 
 /// Round-trip a Float32 (f32) — passed as raw scalar across FFI.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_float32(val: f32) -> f32 {
+pub(crate) extern "C" fn rs_roundtrip_float32(val: f32) -> f32 {
     val
 }
 
 /// Round-trip a USize — passed as raw scalar across FFI.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_usize(val: usize) -> usize {
+pub(crate) extern "C" fn rs_roundtrip_usize(val: usize) -> usize {
     val
 }
 
 /// Round-trip an Array Float.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_float(
+pub(crate) extern "C" fn rs_roundtrip_array_float(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let len = arr_ptr.len();
@@ -441,7 +447,7 @@ pub extern "C" fn rs_roundtrip_array_float(
 
 /// Round-trip an Array Float32.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_float32(
+pub(crate) extern "C" fn rs_roundtrip_array_float32(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let len = arr_ptr.len();
@@ -459,7 +465,7 @@ pub extern "C" fn rs_roundtrip_array_float32(
 
 /// Round-trip a String using LeanString::from_bytes instead of LeanString::new.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_string_from_bytes(
+pub(crate) extern "C" fn rs_roundtrip_string_from_bytes(
     s_ptr: LeanString<LeanBorrowed<'_>>,
 ) -> LeanString<LeanOwned> {
     let s = s_ptr.to_string();
@@ -472,7 +478,7 @@ pub extern "C" fn rs_roundtrip_string_from_bytes(
 
 /// Round-trip an Array Nat by pushing each element into a new array.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_array_push(
+pub(crate) extern "C" fn rs_roundtrip_array_push(
     arr_ptr: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let nats: Vec<Nat> = arr_ptr.map(|b| Nat::from_obj(&b));
@@ -490,7 +496,7 @@ pub extern "C" fn rs_roundtrip_array_push(
 /// Round-trip a Nat with owned arg (no @&). Tests that LeanOwned Drop correctly
 /// calls lean_dec on the input without double-free or leak.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_nat_roundtrip(nat_ptr: LeanNat<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_nat_roundtrip(nat_ptr: LeanNat<LeanOwned>) -> LeanNat<LeanOwned> {
     let nat = Nat::from_obj(nat_ptr.inner());
     nat.to_lean()
     // nat_ptr drops here → lean_dec (correct for owned arg)
@@ -498,7 +504,9 @@ pub extern "C" fn rs_owned_nat_roundtrip(nat_ptr: LeanNat<LeanOwned>) -> LeanNat
 
 /// Round-trip a String with owned arg. Tests LeanOwned Drop on strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_string_roundtrip(s_ptr: LeanString<LeanOwned>) -> LeanString<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_string_roundtrip(
+    s_ptr: LeanString<LeanOwned>,
+) -> LeanString<LeanOwned> {
     let s = s_ptr.to_string();
     LeanString::new(&s)
     // s_ptr drops here → lean_dec
@@ -506,7 +514,7 @@ pub extern "C" fn rs_owned_string_roundtrip(s_ptr: LeanString<LeanOwned>) -> Lea
 
 /// Round-trip an Array Nat with owned arg. Tests LeanOwned Drop on arrays.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_array_nat_roundtrip(
+pub(crate) extern "C" fn rs_owned_array_nat_roundtrip(
     arr_ptr: LeanArray<LeanOwned>,
 ) -> LeanArray<LeanOwned> {
     let nats: Vec<Nat> = arr_ptr.map(|b| Nat::from_obj(&b));
@@ -520,7 +528,7 @@ pub extern "C" fn rs_owned_array_nat_roundtrip(
 
 /// Round-trip a List Nat with owned arg. Tests LeanOwned Drop on lists.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_list_nat_roundtrip(
+pub(crate) extern "C" fn rs_owned_list_nat_roundtrip(
     list_ptr: LeanList<LeanOwned>,
 ) -> LeanList<LeanOwned> {
     let nats: Vec<Nat> = list_ptr.collect(|b| Nat::from_obj(&b));
@@ -532,7 +540,7 @@ pub extern "C" fn rs_owned_list_nat_roundtrip(
 /// Two owned args: take an array and a nat (both owned), append nat to array.
 /// Tests Drop on two owned args simultaneously.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_append_nat(
+pub(crate) extern "C" fn rs_owned_append_nat(
     arr: LeanArray<LeanOwned>,
     nat: LeanNat<LeanOwned>,
 ) -> LeanArray<LeanOwned> {
@@ -545,7 +553,9 @@ pub extern "C" fn rs_owned_append_nat(
 /// Owned arg that we explicitly drop early (by letting it go out of scope)
 /// then return a completely new value. Tests that Drop runs at the right time.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_drop_and_replace(s: LeanString<LeanOwned>) -> LeanString<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_drop_and_replace(
+    s: LeanString<LeanOwned>,
+) -> LeanString<LeanOwned> {
     let len = s.byte_len();
     drop(s); // explicit early drop → lean_dec
     LeanString::new(&format!("replaced:{len}"))
@@ -554,7 +564,7 @@ pub extern "C" fn rs_owned_drop_and_replace(s: LeanString<LeanOwned>) -> LeanStr
 /// Three owned args: merge three lists into one.
 /// Tests Drop on multiple owned args with complex ownership flow.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_merge_lists(
+pub(crate) extern "C" fn rs_owned_merge_lists(
     a: LeanList<LeanOwned>,
     b: LeanList<LeanOwned>,
     c: LeanList<LeanOwned>,
@@ -576,7 +586,7 @@ pub extern "C" fn rs_owned_merge_lists(
 
 /// Owned ByteArray: reverse the bytes and return.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_reverse_bytearray(
+pub(crate) extern "C" fn rs_owned_reverse_bytearray(
     ba: LeanByteArray<LeanOwned>,
 ) -> LeanByteArray<LeanOwned> {
     let bytes = ba.as_bytes();
@@ -587,7 +597,7 @@ pub extern "C" fn rs_owned_reverse_bytearray(
 
 /// Owned Point (ctor): negate both fields (swap x and y + add them).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_point_sum(point: LeanCtor<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_point_sum(point: LeanCtor<LeanOwned>) -> LeanNat<LeanOwned> {
     let x = Nat::from_obj(&point.get(0));
     let y = Nat::from_obj(&point.get(1));
     Nat(x.0 + y.0).to_lean()
@@ -596,7 +606,9 @@ pub extern "C" fn rs_owned_point_sum(point: LeanCtor<LeanOwned>) -> LeanNat<Lean
 
 /// Owned Except: if ok, double the nat; if error, return error string length.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_except_transform(exc: LeanExcept<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_except_transform(
+    exc: LeanExcept<LeanOwned>,
+) -> LeanNat<LeanOwned> {
     match exc.into_result() {
         Ok(val) => {
             let nat = Nat::from_obj(&val);
@@ -612,7 +624,7 @@ pub extern "C" fn rs_owned_except_transform(exc: LeanExcept<LeanOwned>) -> LeanN
 
 /// Owned Option: if some(n), return n*n; if none, return 0.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_option_square(opt: LeanOption<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_option_square(opt: LeanOption<LeanOwned>) -> LeanNat<LeanOwned> {
     if opt.inner().is_scalar() {
         Nat::ZERO.to_lean()
     } else {
@@ -624,7 +636,7 @@ pub extern "C" fn rs_owned_option_square(opt: LeanOption<LeanOwned>) -> LeanNat<
 
 /// Owned Prod: return fst * snd.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> LeanNat<LeanOwned> {
     let fst = Nat::from_obj(&pair.fst());
     let snd = Nat::from_obj(&pair.snd());
     Nat(fst.0 * snd.0).to_lean()
@@ -638,7 +650,7 @@ pub extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> LeanNat<L
 /// to roundtrip correctly because both read and write use the same offsets.
 /// But for computing actual values, we must use the real layout.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
+pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
     // Lean descending-size layout: u64(0), u32(8), u8(12)
     let ctor = ptr.as_ctor();
     let u64val = ctor.get_u64(1, 0);
@@ -655,7 +667,7 @@ pub extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
 /// Clone an owned array and return the sum of lengths of both copies.
 /// Tests that Clone (lean_inc) produces a valid second handle.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_array_len_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -> usize {
+pub(crate) extern "C" fn rs_clone_array_len_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -> usize {
     // Create an owned copy, then clone it
     let owned: LeanArray<LeanOwned> = {
         let nats: Vec<Nat> = arr_ptr.map(|b| Nat::from_obj(&b));
@@ -666,18 +678,18 @@ pub extern "C" fn rs_clone_array_len_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -
         arr
     };
     let cloned = owned.clone();
-    let sum = owned.len() + cloned.len();
+
     // Both owned and cloned drop here → lean_dec called twice (correct: clone did lean_inc)
-    sum
+    owned.len() + cloned.len()
 }
 
 /// Clone an owned string and return the sum of byte lengths of both copies.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_string_len_sum(s: LeanString<LeanBorrowed<'_>>) -> usize {
+pub(crate) extern "C" fn rs_clone_string_len_sum(s: LeanString<LeanBorrowed<'_>>) -> usize {
     let owned = LeanString::new(&s.to_string());
     let cloned = owned.clone();
-    let sum = owned.byte_len() + cloned.byte_len();
-    sum
+
+    owned.byte_len() + cloned.byte_len()
 }
 
 /// Clone an owned Except and read from both copies. Tests that lean_inc
@@ -685,7 +697,7 @@ pub extern "C" fn rs_clone_string_len_sum(s: LeanString<LeanBorrowed<'_>>) -> us
 /// copies can be independently dropped (lean_dec) without double-free.
 /// Returns: for ok(n), 2*n (read n from both copies); for error(s), 2*byte_len.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_except(exc: LeanExcept<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_clone_except(exc: LeanExcept<LeanOwned>) -> LeanNat<LeanOwned> {
     let cloned = exc.clone();
     let result = match (exc.into_result(), cloned.into_result()) {
         (Ok(v1), Ok(v2)) => Nat(Nat::from_obj(&v1).0 + Nat::from_obj(&v2).0),
@@ -701,7 +713,7 @@ pub extern "C" fn rs_clone_except(exc: LeanExcept<LeanOwned>) -> LeanNat<LeanOwn
 
 /// Clone an owned List, count elements in both copies. Tests lean_inc on list spine.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_list(list: LeanList<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_clone_list(list: LeanList<LeanOwned>) -> LeanNat<LeanOwned> {
     let cloned = list.clone();
     let count1 = list.iter().count();
     let count2 = cloned.iter().count();
@@ -710,14 +722,14 @@ pub extern "C" fn rs_clone_list(list: LeanList<LeanOwned>) -> LeanNat<LeanOwned>
 
 /// Clone an owned ByteArray, sum byte lengths of both. Tests lean_inc on scalar arrays.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_bytearray(ba: LeanByteArray<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_clone_bytearray(ba: LeanByteArray<LeanOwned>) -> LeanNat<LeanOwned> {
     let cloned = ba.clone();
     Nat::from((ba.len() + cloned.len()) as u64).to_lean()
 }
 
 /// Clone an owned Option Nat: if some(n), return 2*n from both copies; if none, return 0.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_option(opt: LeanOption<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_clone_option(opt: LeanOption<LeanOwned>) -> LeanNat<LeanOwned> {
     let cloned = opt.clone();
     let result = match (opt.to_option(), cloned.to_option()) {
         (Some(v1), Some(v2)) => Nat(Nat::from_obj(&v1).0 + Nat::from_obj(&v2).0),
@@ -729,7 +741,7 @@ pub extern "C" fn rs_clone_option(opt: LeanOption<LeanOwned>) -> LeanNat<LeanOwn
 
 /// Clone an owned Prod, return fst1+fst2+snd1+snd2 from both copies.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_clone_prod(pair: LeanProd<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_clone_prod(pair: LeanProd<LeanOwned>) -> LeanNat<LeanOwned> {
     let cloned = pair.clone();
     let sum = Nat::from_obj(&pair.fst()).0
         + Nat::from_obj(&pair.snd()).0
@@ -740,7 +752,7 @@ pub extern "C" fn rs_clone_prod(pair: LeanProd<LeanOwned>) -> LeanNat<LeanOwned>
 
 /// Owned ByteArray roundtrip: read bytes, rebuild. Tests LeanOwned Drop on scalar arrays.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_bytearray_roundtrip(
+pub(crate) extern "C" fn rs_owned_bytearray_roundtrip(
     ba: LeanByteArray<LeanOwned>,
 ) -> LeanByteArray<LeanOwned> {
     LeanByteArray::from_bytes(ba.as_bytes())
@@ -749,7 +761,9 @@ pub extern "C" fn rs_owned_bytearray_roundtrip(
 
 /// Owned Option roundtrip: decode and re-encode. Tests Drop on Option constructor.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_option_roundtrip(opt: LeanOption<LeanOwned>) -> LeanOption<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_option_roundtrip(
+    opt: LeanOption<LeanOwned>,
+) -> LeanOption<LeanOwned> {
     match opt.to_option() {
         None => LeanOption::none(),
         Some(val) => LeanOption::some(Nat::from_obj(&val).to_lean()),
@@ -758,7 +772,7 @@ pub extern "C" fn rs_owned_option_roundtrip(opt: LeanOption<LeanOwned>) -> LeanO
 
 /// Owned Prod roundtrip: decode fst/snd, rebuild. Tests Drop on Prod constructor.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_prod_roundtrip(pair: LeanProd<LeanOwned>) -> LeanProd<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_prod_roundtrip(pair: LeanProd<LeanOwned>) -> LeanProd<LeanOwned> {
     let f = Nat::from_obj(&pair.fst());
     let s = Nat::from_obj(&pair.snd());
     LeanProd::new(build_nat(&f), build_nat(&s))
@@ -766,7 +780,9 @@ pub extern "C" fn rs_owned_prod_roundtrip(pair: LeanProd<LeanOwned>) -> LeanProd
 
 /// Owned IOResult: extract value from ok result, return it. Tests Drop on IOResult.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_owned_io_result_value(result: LeanIOResult<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_owned_io_result_value(
+    result: LeanIOResult<LeanOwned>,
+) -> LeanNat<LeanOwned> {
     // IOResult ok = tag 0, fields: [value, world]; error = tag 1
     let ctor = result.as_ctor();
     if ctor.tag() == 0 {
@@ -782,7 +798,9 @@ pub extern "C" fn rs_owned_io_result_value(result: LeanIOResult<LeanOwned>) -> L
 
 /// Sum all Nats in an array using the data() slice API.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_array_data_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_array_data_sum(
+    arr_ptr: LeanArray<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let mut sum = Nat::ZERO;
     for elem in arr_ptr.data() {
         sum = Nat(sum.0 + Nat::from_obj(elem).0);
@@ -796,7 +814,7 @@ pub extern "C" fn rs_array_data_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -> Lea
 
 /// Test LeanOption API: return the Nat inside a Some, or 0 for None.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_option_unwrap_or_zero(
+pub(crate) extern "C" fn rs_option_unwrap_or_zero(
     opt: LeanOption<LeanBorrowed<'_>>,
 ) -> LeanNat<LeanOwned> {
     match opt.to_option() {
@@ -811,7 +829,7 @@ pub extern "C" fn rs_option_unwrap_or_zero(
 
 /// Test LeanProd fst/snd API: swap the elements of a pair.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_prod_swap(pair: LeanProd<LeanBorrowed<'_>>) -> LeanProd<LeanOwned> {
+pub(crate) extern "C" fn rs_prod_swap(pair: LeanProd<LeanBorrowed<'_>>) -> LeanProd<LeanOwned> {
     let fst = Nat::from_obj(&pair.fst());
     let snd = Nat::from_obj(&pair.snd());
     LeanProd::new(build_nat(&snd), build_nat(&fst))
@@ -852,7 +870,9 @@ fn borrow_except_value<'a>(exc: &'a LeanExcept<impl LeanRef>) -> LeanBorrowed<'a
 /// Receives a Prod (Array Nat, Array Nat), borrows fst and snd, then borrows
 /// elements from each array, and sums everything — all without any lean_inc.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_borrowed_result_chain(pair: LeanProd<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_borrowed_result_chain(
+    pair: LeanProd<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     // Get borrowed references to the two arrays (b_lean_obj_res pattern)
     let fst_ref = borrow_fst(&pair);
     let snd_ref = borrow_snd(&pair);
@@ -889,7 +909,7 @@ pub extern "C" fn rs_borrowed_result_chain(pair: LeanProd<LeanBorrowed<'_>>) -> 
 /// Test borrowed result from Except. Borrows the inner value without lean_inc,
 /// reads it, and returns a new owned Nat.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_borrowed_except_value(
+pub(crate) extern "C" fn rs_borrowed_except_value(
     exc: LeanExcept<LeanBorrowed<'_>>,
 ) -> LeanNat<LeanOwned> {
     let val = borrow_except_value(&exc);
@@ -907,7 +927,7 @@ pub extern "C" fn rs_borrowed_except_value(
 
 /// Round-trip an Array (Array Nat) — tests nested ownership.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_nested_array(
+pub(crate) extern "C" fn rs_roundtrip_nested_array(
     outer: LeanArray<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let len = outer.len();
@@ -929,7 +949,7 @@ pub extern "C" fn rs_roundtrip_nested_array(
 
 /// Round-trip a List (List Nat) — tests nested list iteration.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_roundtrip_nested_list(
+pub(crate) extern "C" fn rs_roundtrip_nested_list(
     outer: LeanList<LeanBorrowed<'_>>,
 ) -> LeanList<LeanOwned> {
     let inner_lists: Vec<LeanList<LeanOwned>> = outer.collect(|inner_ref| {
@@ -947,7 +967,7 @@ pub extern "C" fn rs_roundtrip_nested_list(
 
 /// Test LeanExcept-like pattern: if ok (tag 1), return nat + 1; if error (tag 0), return 0.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_except_map_ok(exc: LeanExcept<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_except_map_ok(exc: LeanExcept<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
     let ctor = exc.as_ctor();
     if ctor.tag() == 1 {
         // ok: field 0 is the Nat value
@@ -966,7 +986,9 @@ pub extern "C" fn rs_except_map_ok(exc: LeanExcept<LeanBorrowed<'_>>) -> LeanNat
 /// Read all elements from a borrowed array, compute sum.
 /// Tests that multiple borrows from the same source don't interfere.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_multi_borrow_sum(arr: LeanArray<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_multi_borrow_sum(
+    arr: LeanArray<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let mut sum = Nat::ZERO;
     // First pass: read all via get()
     for i in 0..arr.len() {
@@ -996,7 +1018,7 @@ pub extern "C" fn rs_multi_borrow_sum(arr: LeanArray<LeanBorrowed<'_>>) -> LeanN
 
 /// Convert List Nat → Array Nat using only push (not alloc+set).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_list_to_array_via_push(
+pub(crate) extern "C" fn rs_list_to_array_via_push(
     list: LeanList<LeanBorrowed<'_>>,
 ) -> LeanArray<LeanOwned> {
     let mut arr = LeanArray::alloc(0);
@@ -1014,7 +1036,7 @@ pub extern "C" fn rs_list_to_array_via_push(
 /// Take a borrowed Nat, convert to owned via to_owned_ref, return it.
 /// Tests that to_owned_ref (lean_inc) produces a valid owned handle.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_borrow_to_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_borrow_to_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
     LeanNat::new(nat.inner().to_owned_ref())
 }
 
@@ -1024,25 +1046,27 @@ pub extern "C" fn rs_borrow_to_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<
 
 /// Create and return an empty array. Unit is passed as lean_box(0).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_make_empty_array(_unit: LeanBorrowed<'_>) -> LeanArray<LeanOwned> {
+pub(crate) extern "C" fn rs_make_empty_array(_unit: LeanBorrowed<'_>) -> LeanArray<LeanOwned> {
     LeanArray::alloc(0)
 }
 
 /// Create and return an empty list.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_make_empty_list(_unit: LeanBorrowed<'_>) -> LeanList<LeanOwned> {
+pub(crate) extern "C" fn rs_make_empty_list(_unit: LeanBorrowed<'_>) -> LeanList<LeanOwned> {
     LeanList::nil()
 }
 
 /// Create and return an empty byte array.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_make_empty_bytearray(_unit: LeanBorrowed<'_>) -> LeanByteArray<LeanOwned> {
+pub(crate) extern "C" fn rs_make_empty_bytearray(
+    _unit: LeanBorrowed<'_>,
+) -> LeanByteArray<LeanOwned> {
     LeanByteArray::alloc(0)
 }
 
 /// Create and return an empty string.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_make_empty_string(_unit: LeanBorrowed<'_>) -> LeanString<LeanOwned> {
+pub(crate) extern "C" fn rs_make_empty_string(_unit: LeanBorrowed<'_>) -> LeanString<LeanOwned> {
     LeanString::new("")
 }
 
@@ -1053,14 +1077,14 @@ pub extern "C" fn rs_make_empty_string(_unit: LeanBorrowed<'_>) -> LeanString<Le
 /// Return the Nat boundary between scalar and heap representation.
 /// On 64-bit: usize::MAX >> 1 = 2^63 - 1
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_nat_max_scalar(_unit: LeanBorrowed<'_>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_nat_max_scalar(_unit: LeanBorrowed<'_>) -> LeanNat<LeanOwned> {
     let max_scalar = usize::MAX >> 1;
     LeanNat::new(LeanOwned::box_usize(max_scalar))
 }
 
 /// Return max_scalar + 1 which must be heap-allocated.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_nat_min_heap(_unit: LeanBorrowed<'_>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_nat_min_heap(_unit: LeanBorrowed<'_>) -> LeanNat<LeanOwned> {
     let max_scalar = (usize::MAX >> 1) as u64;
     Nat::from(max_scalar + 1).to_lean()
 }
@@ -1072,7 +1096,7 @@ pub extern "C" fn rs_nat_min_heap(_unit: LeanBorrowed<'_>) -> LeanNat<LeanOwned>
 /// Read all fields from a single borrowed external handle and return as a string.
 /// Tests that multiple reads from a borrowed external don't corrupt state.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_external_all_fields(
+pub(crate) extern "C" fn rs_external_all_fields(
     obj: LeanRustData<LeanBorrowed<'_>>,
 ) -> LeanString<LeanOwned> {
     let ext =
@@ -1091,14 +1115,16 @@ pub extern "C" fn rs_external_all_fields(
 /// Check if a borrowed Lean object is persistent (m_rc == 0).
 /// Module-level Lean definitions become persistent after initialization.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_is_persistent(obj: LeanNat<LeanBorrowed<'_>>) -> u8 {
+pub(crate) extern "C" fn rs_is_persistent(obj: LeanNat<LeanBorrowed<'_>>) -> u8 {
     if obj.inner().is_persistent() { 1 } else { 0 }
 }
 
 /// Read a Nat from a persistent object (passed as @& borrowed).
 /// Tests that field access works normally on persistent objects.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_read_persistent_nat(obj: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_read_persistent_nat(
+    obj: LeanNat<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let nat = Nat::from_obj(obj.inner());
     nat.to_lean()
 }
@@ -1106,20 +1132,22 @@ pub extern "C" fn rs_read_persistent_nat(obj: LeanNat<LeanBorrowed<'_>>) -> Lean
 /// Read fields from a persistent LeanPoint (structure with x, y : Nat).
 /// Tests that ctor field access works on persistent objects.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_read_persistent_point(
+pub(crate) extern "C" fn rs_read_persistent_point(
     point: LeanPoint<LeanBorrowed<'_>>,
 ) -> LeanNat<LeanOwned> {
     let ctor = point.as_ctor();
     let x = Nat::from_obj(&ctor.get(0));
     let y = Nat::from_obj(&ctor.get(1));
     // Return x + y as a new (non-persistent) Nat
-    Nat(x.0 + y.0).to_lean().into()
+    Nat(x.0 + y.0).to_lean()
 }
 
 /// Read from a persistent array. Tests that array element access works
 /// on persistent objects (elements in persistent arrays are also persistent).
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_read_persistent_array(arr: LeanArray<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_read_persistent_array(
+    arr: LeanArray<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let mut sum = Nat::ZERO;
     for elem in arr.iter() {
         sum = Nat(sum.0 + Nat::from_obj(&elem).0);
@@ -1129,7 +1157,9 @@ pub extern "C" fn rs_read_persistent_array(arr: LeanArray<LeanBorrowed<'_>>) -> 
 
 /// Read from a persistent string. Tests that string access works on persistent objects.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_read_persistent_string(s: LeanString<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_read_persistent_string(
+    s: LeanString<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     Nat::from(s.byte_len() as u64).to_lean()
 }
 
@@ -1137,7 +1167,7 @@ pub extern "C" fn rs_read_persistent_string(s: LeanString<LeanBorrowed<'_>>) -> 
 /// "virtual RC token" but lean_dec is a no-op for persistent objects (m_rc == 0).
 /// This tests that LeanOwned::drop doesn't crash on persistent data.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_drop_persistent_nat(obj: LeanNat<LeanOwned>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_drop_persistent_nat(obj: LeanNat<LeanOwned>) -> LeanNat<LeanOwned> {
     let nat = Nat::from_obj(obj.inner());
     nat.to_lean()
     // obj drops here → lean_dec_ref → no-op because m_rc == 0
@@ -1153,7 +1183,7 @@ use crate::LeanShared;
 /// each thread reads all elements, then all clones are dropped.
 /// Tests that lean_mark_mt + atomic refcounting works correctly.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_parallel_read(
+pub(crate) extern "C" fn rs_shared_parallel_read(
     arr: LeanArray<LeanBorrowed<'_>>,
     n_threads: usize,
 ) -> LeanNat<LeanOwned> {
@@ -1189,7 +1219,7 @@ pub extern "C" fn rs_shared_parallel_read(
 /// Mark a Nat as MT, clone it to N threads, each reads it.
 /// Simpler than array — tests basic scalar/heap Nat across threads.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_parallel_nat(
+pub(crate) extern "C" fn rs_shared_parallel_nat(
     nat: LeanNat<LeanBorrowed<'_>>,
     n_threads: usize,
 ) -> LeanNat<LeanOwned> {
@@ -1214,7 +1244,7 @@ pub extern "C" fn rs_shared_parallel_nat(
 /// Mark a string as MT, clone to N threads, each reads byte_len.
 /// Returns sum of all byte_len readings.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_parallel_string(
+pub(crate) extern "C" fn rs_shared_parallel_string(
     s: LeanString<LeanBorrowed<'_>>,
     n_threads: usize,
 ) -> LeanNat<LeanOwned> {
@@ -1237,7 +1267,7 @@ pub extern "C" fn rs_shared_parallel_string(
 /// Stress test: mark array as MT, spawn many threads that each clone
 /// and drop rapidly. Tests atomic refcount under contention.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_contention_stress(
+pub(crate) extern "C" fn rs_shared_contention_stress(
     arr: LeanArray<LeanBorrowed<'_>>,
     n_threads: usize,
     clones_per_thread: usize,
@@ -1267,22 +1297,24 @@ pub extern "C" fn rs_shared_contention_stress(
 /// Test into_owned: mark as MT, convert back to LeanOwned, read value.
 /// Verifies the MT-marked object is still usable after unwrapping.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_into_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
+pub(crate) extern "C" fn rs_shared_into_owned(
+    nat: LeanNat<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
     let shared = LeanShared::new(nat.inner().to_owned_ref());
     let cloned = shared.clone();
     // Convert one back to LeanOwned
     let owned = cloned.into_owned();
     let val = Nat::from_obj(&unsafe { LeanBorrowed::from_raw(owned.as_raw()) });
-    let result = val.to_lean();
+
     // owned drops (still MT-marked, lean_dec_ref handles it)
     // shared drops (atomic lean_dec)
-    result
+    val.to_lean()
 }
 
 /// Mark a Point (constructor with 2 obj fields) as MT, read fields from threads.
 /// Tests that lean_mark_mt correctly walks the constructor's object graph.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_parallel_point(
+pub(crate) extern "C" fn rs_shared_parallel_point(
     point: LeanPoint<LeanBorrowed<'_>>,
     n_threads: usize,
 ) -> LeanNat<LeanOwned> {
@@ -1308,7 +1340,7 @@ pub extern "C" fn rs_shared_parallel_point(
 /// Wrap a persistent Nat in LeanShared (lean_mark_mt is skipped for persistent).
 /// Clone to threads and read — verifies the persistent skip path works.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_shared_persistent_nat(
+pub(crate) extern "C" fn rs_shared_persistent_nat(
     nat: LeanNat<LeanBorrowed<'_>>,
     n_threads: usize,
 ) -> LeanNat<LeanOwned> {

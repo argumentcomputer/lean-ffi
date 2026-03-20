@@ -10,7 +10,7 @@ require LSpec from git
 section FFI
 
 /-- Build the static lib for the Rust FFI test crate -/
-target ffi_rs_test pkg : FilePath := do
+extern_lib ffi_rs_test pkg := do
   proc { cmd := "cargo", args := #["build", "--release", "--features", "test-ffi"], cwd := pkg.dir } (quiet := true)
   let srcName := nameToStaticLib "lean_ffi"
   let dstName := nameToStaticLib "lean_ffi_test"
@@ -20,8 +20,7 @@ target ffi_rs_test pkg : FilePath := do
 
 end FFI
 
-lean_lib Tests where
-  moreLinkObjs := #[ffi_rs_test]
+lean_lib Tests
 
 @[test_driver]
 lean_exe LeanFFITests where

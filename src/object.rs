@@ -11,14 +11,27 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 
 use crate::include;
+
+/// Assert that runs only when the `test-ffi` feature is enabled (i.e. during `lake test`).
+macro_rules! test_assert {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "test-ffi")]
+        assert!($($arg)*);
+    };
+}
 use crate::safe_cstring;
 
-// Tag constants from lean.h
-const LEAN_MAX_CTOR_TAG: u8 = 243;
-const LEAN_TAG_ARRAY: u8 = 246;
-const LEAN_TAG_SCALAR_ARRAY: u8 = 248;
-const LEAN_TAG_STRING: u8 = 249;
-const LEAN_TAG_EXTERNAL: u8 = 254;
+// Tag constants from lean.h (only used by test_assert! when test-ffi is enabled)
+#[cfg(feature = "test-ffi")]
+mod tags {
+    pub(super) const LEAN_MAX_CTOR_TAG: u8 = 243;
+    pub(super) const LEAN_TAG_ARRAY: u8 = 246;
+    pub(super) const LEAN_TAG_SCALAR_ARRAY: u8 = 248;
+    pub(super) const LEAN_TAG_STRING: u8 = 249;
+    pub(super) const LEAN_TAG_EXTERNAL: u8 = 254;
+}
+#[cfg(feature = "test-ffi")]
+use tags::*;
 
 /// Constructor tag for `IO.Error.userError`.
 const IO_ERROR_USER_ERROR_TAG: u8 = 7;
@@ -472,11 +485,9 @@ impl LeanArray<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `Array` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 == LEAN_TAG_ARRAY);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } == u32::from(LEAN_TAG_ARRAY));
+        Self(LeanOwned(ptr))
     }
 
     /// Allocate a new array with `size` elements (capacity = size).
@@ -582,11 +593,9 @@ impl LeanByteArray<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `ByteArray` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 == LEAN_TAG_SCALAR_ARRAY);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } == u32::from(LEAN_TAG_SCALAR_ARRAY));
+        Self(LeanOwned(ptr))
     }
 
     /// Allocate a new byte array with `size` bytes (capacity = size).
@@ -615,7 +624,7 @@ impl LeanByteArray<LeanOwned> {
             let cptr = include::lean_sarray_cptr(obj);
             std::ptr::copy_nonoverlapping(data.as_ptr(), cptr, data.len());
             // Update m_size: at offset 8 (after lean_object header)
-            *(obj as *mut u8).add(8).cast::<usize>() = data.len();
+            *obj.cast::<u8>().add(8).cast::<usize>() = data.len();
         }
     }
 
@@ -700,11 +709,9 @@ impl LeanString<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `String` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 == LEAN_TAG_STRING);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } == u32::from(LEAN_TAG_STRING));
+        Self(LeanOwned(ptr))
     }
 
     /// Create a Lean string from a Rust `&str`.
@@ -854,11 +861,9 @@ impl LeanCtor<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean constructor object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 <= LEAN_MAX_CTOR_TAG);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } <= u32::from(LEAN_MAX_CTOR_TAG));
+        Self(LeanOwned(ptr))
     }
 
     /// Allocate a new constructor object.
@@ -1011,11 +1016,9 @@ impl<T> LeanExternal<T, LeanOwned> {
     /// The pointer must be a valid Lean external object whose data pointer
     /// points to a valid `T`.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 == LEAN_TAG_EXTERNAL);
-            Self(LeanOwned(ptr), PhantomData)
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } == u32::from(LEAN_TAG_EXTERNAL));
+        Self(LeanOwned(ptr), PhantomData)
     }
 
     /// Allocate a new external object holding `data`.
@@ -1042,11 +1045,9 @@ impl<'a, T> LeanExternal<T, LeanBorrowed<'a>> {
     /// The pointer must be a valid Lean external object whose data pointer
     /// points to a valid `T`, and the object must outlive `'a`.
     pub unsafe fn from_raw_borrowed(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(include::lean_obj_tag(ptr) as u8 == LEAN_TAG_EXTERNAL);
-            Self(LeanBorrowed::from_raw(ptr), PhantomData)
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(unsafe { include::lean_obj_tag(ptr) } == u32::from(LEAN_TAG_EXTERNAL));
+        Self(unsafe { LeanBorrowed::from_raw(ptr) }, PhantomData)
     }
 }
 
@@ -1146,10 +1147,8 @@ impl LeanList<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `List` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 == 1 || include::lean_obj_tag(ptr) as u8 == 1);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 == 1 || unsafe { include::lean_obj_tag(ptr) } == 1);
+        Self(LeanOwned(ptr))
     }
 
     /// The empty list.
@@ -1260,7 +1259,6 @@ impl<R: LeanRef> LeanOption<R> {
         if self.is_none() {
             None
         } else {
-            #[allow(clippy::cast_possible_truncation)]
             let val = unsafe { include::lean_ctor_get(self.0.as_raw(), 0) };
             Some(LeanBorrowed(val, PhantomData))
         }
@@ -1273,10 +1271,8 @@ impl LeanOption<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `Option` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 == 1 || include::lean_obj_tag(ptr) as u8 == 1);
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 == 1 || unsafe { include::lean_obj_tag(ptr) } == 1);
+        Self(LeanOwned(ptr))
     }
 
     pub fn none() -> Self {
@@ -1368,13 +1364,12 @@ impl LeanExcept<LeanOwned> {
     /// # Safety
     /// The pointer must be a valid Lean `Except` object.
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
-        unsafe {
-            debug_assert!(ptr as usize & 1 != 1);
-            debug_assert!(
-                include::lean_obj_tag(ptr) as u8 == 0 || include::lean_obj_tag(ptr) as u8 == 1
-            );
-            Self(LeanOwned(ptr))
-        }
+        test_assert!(ptr as usize & 1 != 1);
+        test_assert!(
+            unsafe { include::lean_obj_tag(ptr) } == 0
+                || unsafe { include::lean_obj_tag(ptr) } == 1
+        );
+        Self(LeanOwned(ptr))
     }
 
     /// Build `Except.ok val`.
@@ -1612,35 +1607,35 @@ impl<'a> LeanBorrowed<'a> {
     /// Interpret as a constructor object.
     #[inline]
     pub fn as_ctor(self) -> LeanCtor<LeanBorrowed<'a>> {
-        debug_assert!(!self.is_scalar() && self.tag() <= LEAN_MAX_CTOR_TAG);
+        test_assert!(!self.is_scalar() && self.tag() <= LEAN_MAX_CTOR_TAG);
         LeanCtor(self)
     }
 
     /// Interpret as a `String` object.
     #[inline]
     pub fn as_string(self) -> LeanString<LeanBorrowed<'a>> {
-        debug_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_STRING);
+        test_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_STRING);
         LeanString(self)
     }
 
     /// Interpret as an `Array` object.
     #[inline]
     pub fn as_array(self) -> LeanArray<LeanBorrowed<'a>> {
-        debug_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_ARRAY);
+        test_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_ARRAY);
         LeanArray(self)
     }
 
     /// Interpret as a `List`.
     #[inline]
     pub fn as_list(self) -> LeanList<LeanBorrowed<'a>> {
-        debug_assert!(self.is_scalar() || self.tag() == 1);
+        test_assert!(self.is_scalar() || self.tag() == 1);
         LeanList(self)
     }
 
     /// Interpret as a `ByteArray` object.
     #[inline]
     pub fn as_byte_array(self) -> LeanByteArray<LeanBorrowed<'a>> {
-        debug_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_SCALAR_ARRAY);
+        test_assert!(!self.is_scalar() && self.tag() == LEAN_TAG_SCALAR_ARRAY);
         LeanByteArray(self)
     }
 }
