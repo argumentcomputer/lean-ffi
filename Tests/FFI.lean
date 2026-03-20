@@ -268,6 +268,29 @@ opaque readPersistentString : @& String → Nat
 @[extern "rs_drop_persistent_nat"]
 opaque dropPersistentNat : Nat → Nat
 
+/-! ## LeanShared — multi-threaded refcounting tests -/
+
+@[extern "rs_shared_parallel_read"]
+opaque sharedParallelRead : @& Array Nat → USize → Nat
+
+@[extern "rs_shared_parallel_nat"]
+opaque sharedParallelNat : @& Nat → USize → Nat
+
+@[extern "rs_shared_parallel_string"]
+opaque sharedParallelString : @& String → USize → Nat
+
+@[extern "rs_shared_contention_stress"]
+opaque sharedContentionStress : @& Array Nat → USize → USize → Nat
+
+@[extern "rs_shared_into_owned"]
+opaque sharedIntoOwned : @& Nat → Nat
+
+@[extern "rs_shared_parallel_point"]
+opaque sharedParallelPoint : @& Point → USize → Nat
+
+@[extern "rs_shared_persistent_nat"]
+opaque sharedPersistentNat : @& Nat → USize → Nat
+
 /-! ## Persistent module-level values -/
 -- These become persistent (m_rc == 0) after module initialization.
 
@@ -622,6 +645,40 @@ public def propertySuite : List TestSeq := [
   group "Misc" (
     checkIO "Array data sum" (∀ arr : Array Nat, arrayDataSum arr == arr.toList.foldl (· + ·) 0) ++
     checkIO "List to array via push" (∀ xs : List Nat, listToArrayViaPush xs == xs.toArray)),
+]
+
+/-! ## LeanShared (multi-threaded) tests -/
+
+def sharedTests : TestSeq :=
+  -- Parallel read: N threads all read same array, sum should be N * element_sum
+  test "Shared parallel read 4 threads" (sharedParallelRead #[1, 2, 3] 4 == 24) ++
+  test "Shared parallel read 8 threads" (sharedParallelRead #[10, 20] 8 == 240) ++
+  test "Shared parallel read empty" (sharedParallelRead #[] 4 == 0) ++
+  test "Shared parallel read 1 thread" (sharedParallelRead #[42] 1 == 42) ++
+  -- Parallel Nat: all threads should read same value
+  test "Shared parallel Nat 42" (sharedParallelNat 42 4 == 42) ++
+  test "Shared parallel Nat 0" (sharedParallelNat 0 4 == 0) ++
+  test "Shared parallel Nat large" (sharedParallelNat (2^64) 4 == 2^64) ++
+  -- Parallel String: sum of byte_len across threads
+  test "Shared parallel String" (sharedParallelString "hello" 4 == 20) ++
+  test "Shared parallel String empty" (sharedParallelString "" 4 == 0) ++
+  -- Contention stress: rapid clone/drop from many threads
+  test "Shared contention 4 threads 100 clones" (sharedContentionStress #[1, 2, 3] 4 100 == 12) ++
+  test "Shared contention 8 threads 50 clones" (sharedContentionStress #[10] 8 50 == 8) ++
+  -- into_owned: unwrap MT-marked LeanShared back to LeanOwned
+  test "Shared into_owned 42" (sharedIntoOwned 42 == 42) ++
+  test "Shared into_owned large" (sharedIntoOwned (2^128) == 2^128) ++
+  test "Shared into_owned 0" (sharedIntoOwned 0 == 0) ++
+  -- Constructor types: lean_mark_mt walks object graph
+  test "Shared parallel Point 4 threads" (sharedParallelPoint ⟨10, 20⟩ 4 == 120) ++
+  test "Shared parallel Point 1 thread" (sharedParallelPoint ⟨3, 7⟩ 1 == 10) ++
+  test "Shared parallel Point zeros" (sharedParallelPoint ⟨0, 0⟩ 4 == 0) ++
+  -- Persistent objects: lean_mark_mt skipped, refcount ops are no-ops
+  test "Shared persistent Nat" (sharedPersistentNat persistentNat 4 == 42) ++
+  test "Shared persistent large Nat" (sharedPersistentNat persistentLargeNat 4 == 2^128)
+
+public def sharedSuite : List TestSeq := [
+  group "LeanShared MT" sharedTests,
 ]
 
 end Tests.FFI

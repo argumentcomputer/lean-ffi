@@ -7,5 +7,6 @@ def main (args : List String) : IO UInt32 := do
     ("owned",      Tests.FFI.ownedSuite),
     ("persistent", Tests.FFI.persistentSuite),
     ("property",   Tests.FFI.propertySuite),
+    ("shared",     Tests.FFI.sharedSuite),
   ]
   LSpec.lspecIO suites args

@@ -1447,3 +1447,81 @@ impl<'a> LeanBorrowed<'a> {
         LeanByteArray(self)
     }
 }
+
+// =============================================================================
+// LeanShared — Thread-safe owned Lean object
+// =============================================================================
+
+/// Thread-safe owned Lean object with atomic refcounting.
+///
+/// Created by calling [`lean_mark_mt`] on the object graph, which transitions
+/// all reachable objects from single-threaded to multi-threaded mode.
+/// After marking, [`lean_inc_ref`] / [`lean_dec_ref`] use atomic operations,
+/// so [`LeanOwned`]'s existing `Clone` and `Drop` are thread-safe.
+///
+/// Scalars (tagged pointers with bit 0 set) and persistent objects
+/// (`m_rc == 0`) are unaffected by MT marking.
+#[repr(transparent)]
+pub struct LeanShared(LeanOwned);
+
+// SAFETY: lean_mark_mt transitions the entire reachable object graph to
+// multi-threaded mode. After marking, lean_inc_ref uses atomic operations
+// for refcount increments, and lean_dec_ref delegates to lean_dec_ref_cold
+// which also handles MT objects atomically. This makes Clone (inc_ref) and
+// Drop (dec_ref) thread-safe.
+unsafe impl Send for LeanShared {}
+unsafe impl Sync for LeanShared {}
+
+impl LeanShared {
+    /// Mark an owned object's entire reachable graph as MT and take ownership.
+    ///
+    /// Persistent objects (`m_rc == 0`) and scalars are unaffected.
+    /// After this call, all refcount operations on the object graph use
+    /// atomic instructions.
+    #[inline]
+    pub fn new(owned: LeanOwned) -> Self {
+        if !owned.is_scalar() && !owned.is_persistent() {
+            unsafe { include::lean_mark_mt(owned.as_raw()); }
+        }
+        Self(owned)
+    }
+
+    /// Borrow this object. The returned reference is lifetime-bounded
+    /// to `&self` and is **not** `Send`.
+    #[inline]
+    pub fn borrow(&self) -> LeanBorrowed<'_> {
+        unsafe { LeanBorrowed::from_raw(self.0.as_raw()) }
+    }
+
+    /// Get the raw pointer, e.g. for pointer-identity caching across threads.
+    #[inline]
+    pub fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
+
+    /// Consume, returning the inner [`LeanOwned`] (still MT-marked).
+    #[inline]
+    pub fn into_owned(self) -> LeanOwned {
+        let ptr = self.0.as_raw();
+        std::mem::forget(self);
+        unsafe { LeanOwned::from_raw(ptr) }
+    }
+}
+
+impl Clone for LeanShared {
+    #[inline]
+    fn clone(&self) -> Self {
+        // lean_inc_ref uses atomic ops for MT objects (m_rc < 0).
+        Self(self.0.clone())
+    }
+}
+
+// No custom Drop needed: LeanOwned's Drop calls lean_dec_ref, which handles
+// MT objects via lean_dec_ref_cold (atomic decrement + deallocation).
+
+impl LeanRef for LeanShared {
+    #[inline]
+    fn as_raw(&self) -> *mut include::lean_object {
+        self.0.as_raw()
+    }
+}

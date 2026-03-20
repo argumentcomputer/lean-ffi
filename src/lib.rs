@@ -23,6 +23,8 @@ pub mod include {
 pub mod nat;
 pub mod object;
 
+pub use object::LeanShared;
+
 #[cfg(feature = "test-ffi")]
 mod test_ffi;
 

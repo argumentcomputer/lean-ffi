@@ -1142,3 +1142,197 @@ pub extern "C" fn rs_drop_persistent_nat(obj: LeanNat<LeanOwned>) -> LeanNat<Lea
     nat.to_lean()
     // obj drops here → lean_dec_ref → no-op because m_rc == 0
 }
+
+// =============================================================================
+// LeanShared — thread-safe multi-threaded refcounting tests
+// =============================================================================
+
+use crate::LeanShared;
+
+/// Mark an array as MT via LeanShared, clone it across N threads,
+/// each thread reads all elements, then all clones are dropped.
+/// Tests that lean_mark_mt + atomic refcounting works correctly.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_parallel_read(
+    arr: LeanArray<LeanBorrowed<'_>>,
+    n_threads: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    // Create an owned copy and mark as MT
+    let shared = LeanShared::new(arr.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone(); // atomic lean_inc
+        handles.push(thread::spawn(move || {
+            // Each thread borrows and reads all elements
+            let borrowed = shared_clone.borrow().as_array();
+            let mut sum: u64 = 0;
+            for elem in borrowed.iter() {
+                sum += Nat::from_obj(&elem).to_u64().unwrap_or(0);
+            }
+            sum
+            // shared_clone dropped → atomic lean_dec
+        }));
+    }
+
+    let mut total: u64 = 0;
+    for h in handles {
+        total += h.join().unwrap();
+    }
+    // shared dropped → atomic lean_dec (last ref frees)
+
+    Nat::from(total).to_lean()
+}
+
+/// Mark a Nat as MT, clone it to N threads, each reads it.
+/// Simpler than array — tests basic scalar/heap Nat across threads.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_parallel_nat(
+    nat: LeanNat<LeanBorrowed<'_>>,
+    n_threads: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    let shared = LeanShared::new(nat.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone();
+        handles.push(thread::spawn(move || {
+            Nat::from_obj(&shared_clone.borrow())
+        }));
+    }
+
+    // All threads should read the same value
+    let results: Vec<Nat> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let first = &results[0];
+    assert!(results.iter().all(|r| r == first), "MT read inconsistency");
+
+    first.to_lean()
+}
+
+/// Mark a string as MT, clone to N threads, each reads byte_len.
+/// Returns sum of all byte_len readings.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_parallel_string(
+    s: LeanString<LeanBorrowed<'_>>,
+    n_threads: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    let shared = LeanShared::new(s.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone();
+        handles.push(thread::spawn(move || {
+            shared_clone.borrow().as_string().byte_len() as u64
+        }));
+    }
+
+    let total: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    Nat::from(total).to_lean()
+}
+
+/// Stress test: mark array as MT, spawn many threads that each clone
+/// and drop rapidly. Tests atomic refcount under contention.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_contention_stress(
+    arr: LeanArray<LeanBorrowed<'_>>,
+    n_threads: usize,
+    clones_per_thread: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    let shared = LeanShared::new(arr.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone();
+        handles.push(thread::spawn(move || {
+            // Rapidly clone and drop to stress atomic refcount
+            for _ in 0..clones_per_thread {
+                let tmp = shared_clone.clone();
+                let _ = tmp.borrow().as_array().len();
+                // tmp dropped → atomic lean_dec
+            }
+            shared_clone.borrow().as_array().len() as u64
+        }));
+    }
+
+    let total: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    Nat::from(total).to_lean()
+}
+
+/// Test into_owned: mark as MT, convert back to LeanOwned, read value.
+/// Verifies the MT-marked object is still usable after unwrapping.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_into_owned(
+    nat: LeanNat<LeanBorrowed<'_>>,
+) -> LeanNat<LeanOwned> {
+    let shared = LeanShared::new(nat.inner().to_owned_ref());
+    let cloned = shared.clone();
+    // Convert one back to LeanOwned
+    let owned = cloned.into_owned();
+    let val = Nat::from_obj(&unsafe { LeanBorrowed::from_raw(owned.as_raw()) });
+    let result = val.to_lean();
+    // owned drops (still MT-marked, lean_dec_ref handles it)
+    // shared drops (atomic lean_dec)
+    result
+}
+
+/// Mark a Point (constructor with 2 obj fields) as MT, read fields from threads.
+/// Tests that lean_mark_mt correctly walks the constructor's object graph.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_parallel_point(
+    point: LeanPoint<LeanBorrowed<'_>>,
+    n_threads: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    let shared = LeanShared::new(point.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone();
+        handles.push(thread::spawn(move || {
+            let ctor = shared_clone.borrow().as_ctor();
+            let x = Nat::from_obj(&ctor.get(0));
+            let y = Nat::from_obj(&ctor.get(1));
+            x.to_u64().unwrap_or(0) + y.to_u64().unwrap_or(0)
+        }));
+    }
+
+    let total: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    Nat::from(total).to_lean()
+}
+
+/// Wrap a persistent Nat in LeanShared (lean_mark_mt is skipped for persistent).
+/// Clone to threads and read — verifies the persistent skip path works.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_shared_persistent_nat(
+    nat: LeanNat<LeanBorrowed<'_>>,
+    n_threads: usize,
+) -> LeanNat<LeanOwned> {
+    use std::thread;
+
+    // For persistent objects, LeanShared::new skips lean_mark_mt.
+    // lean_inc_ref / lean_dec_ref are already no-ops for m_rc == 0,
+    // so Clone and Drop are safe without MT marking.
+    let shared = LeanShared::new(nat.inner().to_owned_ref());
+
+    let mut handles = Vec::new();
+    for _ in 0..n_threads {
+        let shared_clone = shared.clone();
+        handles.push(thread::spawn(move || {
+            Nat::from_obj(&shared_clone.borrow())
+        }));
+    }
+
+    let results: Vec<Nat> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let first = &results[0];
+    assert!(results.iter().all(|r| r == first), "persistent MT read inconsistency");
+    first.to_lean()
+}
