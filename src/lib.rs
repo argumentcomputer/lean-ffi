@@ -67,7 +67,7 @@ macro_rules! lean_domain_type {
   ($($(#[$meta:meta])* $name:ident;)*) => {$(
     $(#[$meta])*
     #[repr(transparent)]
-    pub struct $name<R: $crate::object::LeanRef>(R);
+    pub struct $name<R: $crate::object::LeanRef>(pub R);
 
     impl<R: $crate::object::LeanRef> Clone for $name<R> {
       #[inline]
