@@ -157,6 +157,30 @@ instance : Shrinkable (Option Nat) where
     | none => []
     | some n => none :: (Shrinkable.shrink n |>.map some)
 
+def genProdNatNat : Gen (Nat × Nat) := do
+  let a ← genSmallNat
+  let b ← genSmallNat
+  pure (a, b)
+
+instance : Shrinkable (Nat × Nat) where
+  shrink p := if p.1 == 0 && p.2 == 0 then [] else [(p.1 / 2, p.2 / 2)]
+
+def genExceptStringNat : Gen (Except String Nat) := do
+  let b ← genBool
+  if b then .ok <$> genSmallNat
+  else .error <$> genString
+
+instance : BEq (Except String Nat) where
+  beq a b := match a, b with
+    | .ok x, .ok y => x == y
+    | .error x, .error y => x == y
+    | _, _ => false
+
+instance : Shrinkable (Except String Nat) where
+  shrink e := match e with
+    | .ok n => .ok 0 :: (Shrinkable.shrink n |>.map .ok)
+    | .error s => .ok 0 :: (Shrinkable.shrink s |>.map .error)
+
 /-! ## SampleableExt instances -/
 
 instance : SampleableExt Nat := SampleableExt.mkSelfContained genNat
@@ -167,5 +191,7 @@ instance : SampleableExt String := SampleableExt.mkSelfContained genString
 instance : SampleableExt Point := SampleableExt.mkSelfContained genPoint
 instance : SampleableExt NatTree := SampleableExt.mkSelfContained (genNatTree 4)
 instance : SampleableExt (Option Nat) := SampleableExt.mkSelfContained genOptionNat
+instance : SampleableExt (Nat × Nat) := SampleableExt.mkSelfContained genProdNatNat
+instance : SampleableExt (Except String Nat) := SampleableExt.mkSelfContained genExceptStringNat
 
 end

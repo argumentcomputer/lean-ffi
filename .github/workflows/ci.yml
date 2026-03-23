@@ -29,38 +29,16 @@ jobs:
       - name: Check clippy warnings
         run: cargo xclippy
       - name: Check *everything* compiles
-        run: cargo check --all-targets --all-features --workspace
-      # Restore and then save ./test/.lake to the GitHub cache
+        run: cargo check --all-targets --all-features
+      # Restore and then save .lake to the GitHub cache
       # Essentially the same as lean-action but without re-downloading the Lean toolchain
       - uses: actions/cache@v5
         with:
-          path: ./test/.lake
-          key: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('test/lake-manifest.json') }}-${{ github.sha }}
-          restore-keys: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('test/lake-manifest.json') }}
+          path: ./.lake
+          key: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.sha }}
+          restore-keys: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lake-manifest.json') }}
       - run: lake build --wfail -v
-        working-directory: ./test
       - run: lake test
-        working-directory: ./test
-
-  valgrind:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      # Only restore the cache, since the `test` job will save the test binary to the cache first
-      - uses: actions/cache/restore@v5
-        with:
-          path: ./test/.lake
-          key: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('test/lake-manifest.json') }}-${{ github.sha }}
-          restore-keys: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('test/lake-manifest.json') }}
-      - uses: leanprover/lean-action@v1
-        with:
-          auto-config: false
-          build: true
-          build-args: "LeanFFITests"
-          use-github-cache: false
-          lake-package-directory: "./test"
       - name: Install valgrind
         run: sudo apt-get update && sudo apt-get install -y valgrind
       - name: Run tests under valgrind
@@ -72,7 +50,6 @@ jobs:
             --track-origins=yes \
             --error-exitcode=1 \
             .lake/build/bin/LeanFFITests
-        working-directory: ./test
 
   nix:
     runs-on: ubuntu-latest

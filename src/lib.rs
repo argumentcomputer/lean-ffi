@@ -1,4 +1,4 @@
-//! Low-level Lean FFI bindings and type-safe wrappers.
+//! Low-level Lean FFI bindings and ownership-aware type-safe wrappers.
 //!
 //! The `include` submodule contains auto-generated bindings from `lean.h` via
 //! bindgen. Higher-level helpers are in `object` and `nat`.
@@ -23,6 +23,11 @@ pub mod include {
 pub mod nat;
 pub mod object;
 
+pub use object::LeanShared;
+
+#[cfg(feature = "test-ffi")]
+mod test_ffi;
+
 use std::ffi::{CString, c_void};
 
 /// Create a CString from a str, stripping any interior null bytes.
@@ -42,30 +47,74 @@ pub fn safe_cstring(s: &str) -> CString {
 /// Must only be used as a `lean_external_foreach_fn` callback.
 pub unsafe extern "C" fn noop_foreach(_: *mut c_void, _: *mut include::lean_object) {}
 
-/// Generate a `#[repr(transparent)]` newtype over `LeanObject` for a specific
-/// Lean type, with `Deref`, `From`, and a `new` constructor.
+/// Generate a `#[repr(transparent)]` newtype over a `LeanRef` type parameter
+/// for a specific Lean type, with Clone, conditional Copy, from_raw, into_raw, and From impls.
+///
+/// # Naming convention
+///
+/// Domain types should be prefixed with `Lean` to distinguish them from Lean-side types
+/// and to match the built-in types (`LeanArray`, `LeanString`, `LeanNat`, etc.).
+/// For example, a Lean `Point` structure becomes `LeanPoint` in Rust:
+///
+/// ```ignore
+/// lean_domain_type! {
+///     /// Lean `Point` — structure Point where x : Nat; y : Nat
+///     LeanPoint;
+/// }
+/// ```
 #[macro_export]
 macro_rules! lean_domain_type {
   ($($(#[$meta:meta])* $name:ident;)*) => {$(
     $(#[$meta])*
-    #[derive(Clone, Copy)]
     #[repr(transparent)]
-    pub struct $name($crate::object::LeanObject);
+    pub struct $name<R: $crate::object::LeanRef>(pub R);
 
-    impl std::ops::Deref for $name {
-      type Target = $crate::object::LeanObject;
+    impl<R: $crate::object::LeanRef> Clone for $name<R> {
       #[inline]
-      fn deref(&self) -> &$crate::object::LeanObject { &self.0 }
+      fn clone(&self) -> Self { Self(self.0.clone()) }
     }
 
-    impl From<$name> for $crate::object::LeanObject {
+    impl<R: $crate::object::LeanRef + Copy> Copy for $name<R> {}
+
+    impl<R: $crate::object::LeanRef> $name<R> {
+      /// Get the inner reference.
       #[inline]
-      fn from(x: $name) -> Self { x.0 }
+      pub fn inner(&self) -> &R { &self.0 }
+
+      /// Get the raw lean_object pointer.
+      #[inline]
+      pub fn as_raw(&self) -> *mut $crate::include::lean_object { self.0.as_raw() }
+
+      /// View this object as a `LeanCtor` for field access.
+      #[inline]
+      pub fn as_ctor(&self) -> $crate::object::LeanCtor<$crate::object::LeanBorrowed<'_>> {
+          unsafe { $crate::object::LeanBorrowed::from_raw(self.0.as_raw()) }.as_ctor()
+      }
     }
 
-    impl $name {
+    impl $name<$crate::object::LeanOwned> {
+      /// Wrap an owned `LeanOwned` value.
       #[inline]
-      pub fn new(obj: $crate::object::LeanObject) -> Self { Self(obj) }
+      pub fn new(obj: $crate::object::LeanOwned) -> Self { Self(obj) }
+
+      /// Consume without calling `lean_dec`.
+      #[inline]
+      pub fn into_raw(self) -> *mut $crate::include::lean_object {
+        let ptr = self.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the caller
+        std::mem::forget(self);
+        ptr
+      }
+    }
+
+    impl From<$name<$crate::object::LeanOwned>> for $crate::object::LeanOwned {
+      #[inline]
+      fn from(x: $name<$crate::object::LeanOwned>) -> Self {
+        let ptr = x.0.as_raw();
+        // Suppress Drop (lean_dec) — ownership transfers to the returned LeanOwned
+        std::mem::forget(x);
+        unsafe { $crate::object::LeanOwned::from_raw(ptr) }
+      }
     }
   )*};
 }
