@@ -71,6 +71,13 @@ pub trait LeanRef: Clone {
         }
     }
 
+    /// True if this object has exactly one reference and is in single-threaded mode.
+    /// When exclusive, the object can be safely mutated in place without copying.
+    #[inline]
+    fn is_exclusive(&self) -> bool {
+        !self.is_scalar() && unsafe { include::lean_is_exclusive(self.as_raw()) }
+    }
+
     /// True if this is a persistent object (m_rc == 0). Persistent objects live
     /// for the program's lifetime and must not have their reference count modified.
     /// Objects in compact regions and values created at initialization time are persistent.
@@ -503,7 +510,23 @@ impl LeanArray<LeanOwned> {
         Self(LeanOwned(obj))
     }
 
-    /// Set the `i`-th element. Takes ownership of `val`.
+    /// Build an array from a Lean `List`. Consumes the list. Wraps `lean_array_mk`.
+    pub fn from_list(list: LeanList<LeanOwned>) -> Self {
+        let result = unsafe { include::lean_array_mk(list.into_raw()) };
+        LeanArray(LeanOwned(result))
+    }
+
+    /// Convert this array to a Lean `List`. Consumes self. Wraps `lean_array_to_list`.
+    pub fn to_list(self) -> LeanList<LeanOwned> {
+        let result = unsafe { include::lean_array_to_list(self.into_raw()) };
+        LeanList(LeanOwned(result))
+    }
+
+    /// Set the `i`-th element of an exclusively owned array. Takes ownership of `val`.
+    /// Wraps `lean_array_set_core`, which asserts `lean_is_exclusive`.
+    ///
+    /// Use this for populating freshly allocated arrays (where `rc == 1` is guaranteed).
+    /// For arrays that may be shared, use [`uset`](Self::uset) instead.
     pub fn set(&self, i: usize, val: impl Into<LeanOwned>) {
         let val: LeanOwned = val.into();
         unsafe {
@@ -519,6 +542,32 @@ impl LeanArray<LeanOwned> {
         let self_ptr = ManuallyDrop::new(self).0.as_raw();
         let val_ptr = val.into_raw();
         let result = unsafe { include::lean_array_push(self_ptr, val_ptr) };
+        LeanArray(LeanOwned(result))
+    }
+
+    /// Set element `i` to `val`, ensuring exclusive ownership first.
+    /// If the array is shared, it is copied before mutation.
+    /// Consumes `self` and returns the (possibly new) array. Wraps `lean_array_uset`.
+    ///
+    /// Use this for modifying arrays that may be shared (e.g. received from Lean).
+    /// For populating freshly allocated arrays, [`set`](Self::set) is simpler.
+    pub fn uset(self, i: usize, val: impl Into<LeanOwned>) -> LeanArray<LeanOwned> {
+        let val: LeanOwned = val.into();
+        let result = unsafe { include::lean_array_uset(self.into_raw(), i, val.into_raw()) };
+        LeanArray(LeanOwned(result))
+    }
+
+    /// Remove the last element, copying the array first if it is shared.
+    /// Returns the array unchanged if it is empty.
+    pub fn pop(self) -> LeanArray<LeanOwned> {
+        let result = unsafe { include::lean_array_pop(self.into_raw()) };
+        LeanArray(LeanOwned(result))
+    }
+
+    /// Swap elements at indices `i` and `j`, copying the array first if it is shared.
+    /// Wraps `lean_array_uswap`.
+    pub fn uswap(self, i: usize, j: usize) -> LeanArray<LeanOwned> {
+        let result = unsafe { include::lean_array_uswap(self.into_raw(), i, j) };
         LeanArray(LeanOwned(result))
     }
 
@@ -611,7 +660,9 @@ impl LeanByteArray<LeanOwned> {
         Self(LeanOwned(obj))
     }
 
-    /// Allocate a new byte array and copy `data` into it.
+    /// Allocate a new byte array from a Rust byte slice.
+    /// Use this when constructing a Lean `ByteArray` from Rust data.
+    /// To duplicate an existing Lean `ByteArray`, use [`copy`](Self::copy).
     pub fn from_bytes(data: &[u8]) -> Self {
         let arr = Self::alloc(data.len());
         unsafe {
@@ -621,7 +672,11 @@ impl LeanByteArray<LeanOwned> {
         arr
     }
 
-    /// Copy `data` into the byte array and update its size.
+    /// Copy `data` into an exclusively owned byte array and update its size.
+    /// Wraps direct pointer writes, which assume `lean_is_exclusive`.
+    ///
+    /// Use this for populating freshly allocated byte arrays (where `rc == 1` is guaranteed).
+    /// For byte arrays that may be shared, use [`uset`](Self::uset) instead.
     ///
     /// # Safety
     /// The caller must ensure the array has sufficient capacity for `data`.
@@ -633,6 +688,31 @@ impl LeanByteArray<LeanOwned> {
             // Update m_size: at offset 8 (after lean_object header)
             *obj.cast::<u8>().add(8).cast::<usize>() = data.len();
         }
+    }
+
+    /// Set byte `i` to `val`, ensuring exclusive ownership first.
+    /// If the array is shared, it is copied before mutation.
+    /// Consumes `self` and returns the (possibly new) array. Wraps `lean_byte_array_uset`.
+    ///
+    /// For populating freshly allocated byte arrays, [`set_data`](Self::set_data) is simpler.
+    pub fn uset(self, i: usize, val: u8) -> LeanByteArray<LeanOwned> {
+        let result = unsafe { include::lean_byte_array_uset(self.into_raw(), i, val) };
+        LeanByteArray(LeanOwned(result))
+    }
+
+    /// Append a byte, reallocating if needed. Copies the array first if it is shared.
+    pub fn push(self, val: u8) -> LeanByteArray<LeanOwned> {
+        let result = unsafe { include::lean_byte_array_push(self.into_raw(), val) };
+        LeanByteArray(LeanOwned(result))
+    }
+
+    /// Duplicate this byte array into a new exclusively owned copy.
+    /// Consumes self, decrementing the original's refcount.
+    /// Use this to get an exclusive copy before mutation. Wraps `lean_copy_byte_array`.
+    /// To construct a `ByteArray` from a Rust `&[u8]`, use [`from_bytes`](Self::from_bytes).
+    pub fn copy(self) -> Self {
+        let result = unsafe { include::lean_copy_byte_array(self.into_raw()) };
+        LeanByteArray(LeanOwned(result))
     }
 
     /// Consume without calling `lean_dec`.
@@ -695,18 +775,26 @@ impl<R: LeanRef> LeanString<R> {
     pub fn byte_len(&self) -> usize {
         unsafe { include::lean_string_size(self.0.as_raw()) - 1 }
     }
+
+    /// The length of the string (number of UTF-8 characters, not bytes).
+    /// Wraps `lean_string_len`.
+    pub fn length(&self) -> usize {
+        unsafe { include::lean_string_len(self.0.as_raw()) }
+    }
+
+    /// View the string data as a `&str`.
+    pub fn as_str(&self) -> &str {
+        unsafe {
+            let data = include::lean_string_cstr(self.0.as_raw());
+            let bytes = std::slice::from_raw_parts(data.cast::<u8>(), self.byte_len());
+            std::str::from_utf8_unchecked(bytes)
+        }
+    }
 }
 
 impl<R: LeanRef> std::fmt::Display for LeanString<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe {
-            let obj = self.0.as_raw();
-            let len = include::lean_string_size(obj) - 1; // m_size includes NUL
-            let data = include::lean_string_cstr(obj);
-            let bytes = std::slice::from_raw_parts(data.cast::<u8>(), len);
-            let s = std::str::from_utf8_unchecked(bytes);
-            f.write_str(s)
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -732,6 +820,21 @@ impl LeanString<LeanOwned> {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let obj = unsafe { include::lean_mk_string_from_bytes(bytes.as_ptr().cast(), bytes.len()) };
         Self(LeanOwned(obj))
+    }
+
+    /// Push a UTF-32 character, ensuring exclusive ownership first.
+    /// Consumes `self` and returns the (possibly new) string. Wraps `lean_string_push`.
+    pub fn push(self, c: u32) -> LeanString<LeanOwned> {
+        let result = unsafe { include::lean_string_push(self.into_raw(), c) };
+        LeanString(LeanOwned(result))
+    }
+
+    /// Append another string, ensuring exclusive ownership of `self` first.
+    /// Borrows `other`. Consumes `self` and returns the (possibly new) string.
+    /// Wraps `lean_string_append`.
+    pub fn append(self, other: &LeanString<impl LeanRef>) -> LeanString<LeanOwned> {
+        let result = unsafe { include::lean_string_append(self.into_raw(), other.0.as_raw()) };
+        LeanString(LeanOwned(result))
     }
 
     /// Consume without calling `lean_dec`.
@@ -1033,6 +1136,20 @@ impl<T> LeanExternal<T, LeanOwned> {
         let data_ptr = Box::into_raw(Box::new(data));
         let obj = unsafe { include::lean_alloc_external(class.0, data_ptr.cast()) };
         Self(LeanOwned(obj), PhantomData)
+    }
+
+    /// Get a mutable reference to the wrapped data if the external object is
+    /// exclusively owned (`m_rc == 1`, single-threaded mode).
+    ///
+    /// Returns `None` if the object is shared or multi-threaded. The `&mut self`
+    /// requirement ensures unique Rust access, while the `is_exclusive` check
+    /// ensures unique Lean access.
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        if unsafe { include::lean_is_exclusive(self.0.as_raw()) } {
+            Some(unsafe { &mut *include::lean_get_external_data(self.0.as_raw()).cast::<T>() })
+        } else {
+            None
+        }
     }
 
     /// Consume without calling `lean_dec`.

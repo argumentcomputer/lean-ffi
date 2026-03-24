@@ -9,6 +9,7 @@
 
 use std::sync::LazyLock;
 
+use crate::include;
 use crate::nat::Nat;
 use crate::object::{
     ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor, LeanExcept,
@@ -1090,6 +1091,123 @@ pub(crate) extern "C" fn rs_nat_min_heap(_unit: LeanBorrowed<'_>) -> LeanNat<Lea
 }
 
 // =============================================================================
+// String length, Array/List conversion, ByteArray copy
+// =============================================================================
+
+/// Return the string length (character count). Wraps `LeanString::length`.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_string_length(s: LeanString<LeanBorrowed<'_>>) -> usize {
+    s.length()
+}
+
+/// Round-trip: Array → List → Array. Tests from_list and to_list.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_array_list_roundtrip(
+    arr: LeanArray<LeanBorrowed<'_>>,
+) -> LeanArray<LeanOwned> {
+    let list = arr.inner().to_owned_ref();
+    let arr = unsafe { LeanArray::from_raw(list.into_raw()) };
+    let list = arr.to_list();
+    LeanArray::from_list(list)
+}
+
+/// Copy a byte array, mutate the copy, return the copy.
+/// Tests that copy produces an independent array.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_bytearray_copy_mutate(
+    ba: LeanByteArray<LeanOwned>,
+) -> LeanByteArray<LeanOwned> {
+    let copy = ba.copy();
+    copy.uset(0, 255)
+}
+
+// =============================================================================
+// In-place mutation tests (uset, pop, uswap, push, get_mut)
+// =============================================================================
+
+/// Exercise array mutation operations: uset, uswap, pop, push.
+/// Input: [1, 2, 3, 4] → uset [0]=10 → [10, 2, 3, 4]
+///                       → uswap 1 3  → [10, 4, 3, 2]
+///                       → pop        → [10, 4, 3]
+///                       → push 99    → [10, 4, 3, 99]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_array_mut_ops(arr: LeanArray<LeanOwned>) -> LeanArray<LeanOwned> {
+    let arr = arr.uset(0, LeanOwned::from_nat_u64(10));
+    let arr = arr.uswap(1, 3);
+    let arr = arr.pop();
+    arr.push(LeanOwned::from_nat_u64(99))
+}
+
+/// Exercise byte array mutation operations: uset and push.
+/// Input: [1, 2, 3] → uset [0]=255 → [255, 2, 3] → push 42 → [255, 2, 3, 42]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_bytearray_mut_ops(
+    ba: LeanByteArray<LeanOwned>,
+) -> LeanByteArray<LeanOwned> {
+    let ba = ba.uset(0, 255);
+    ba.push(42)
+}
+
+/// Test full external object lifecycle: create → read → mutate → read.
+/// Allocates in Rust (rc=1, guaranteed exclusive), reads initial state,
+/// mutates x via get_mut, then verifies x changed and y/label are preserved.
+/// Returns "before/after" as "x:y:label/x:y:label".
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_external_lifecycle(
+    x: u64,
+    y: u64,
+    label: LeanString<LeanBorrowed<'_>>,
+    new_x: u64,
+) -> LeanString<LeanOwned> {
+    let data = RustData {
+        x,
+        y,
+        label: label.to_string(),
+    };
+    // Create
+    let mut ext = LeanExternal::alloc(&RUST_DATA_CLASS, data);
+    // Read
+    let before = format!("{}:{}:{}", ext.get().x, ext.get().y, ext.get().label);
+    // Update
+    if let Some(data) = ext.get_mut() {
+        data.x = new_x;
+    }
+    // Read again — x changed, y and label preserved
+    let after = format!("{}:{}:{}", ext.get().x, ext.get().y, ext.get().label);
+    // Delete — ext drops here via lean_dec → finalizer → Drop
+    LeanString::new(&format!("{before}/{after}"))
+}
+
+/// Mutate a string: append a suffix, then push '!'.
+/// Chaining from Lean tests refcounting across calls.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_string_mut_ops(
+    s: LeanString<LeanOwned>,
+    suffix: LeanString<LeanBorrowed<'_>>,
+) -> LeanString<LeanOwned> {
+    let s = s.append(&suffix);
+    s.push(u32::from('!'))
+}
+
+/// Update the x field of a RustData external, returning the modified object.
+/// Uses get_mut for in-place mutation when exclusive, clones otherwise.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_external_set_x(
+    obj: LeanRustData<LeanOwned>,
+    new_x: u64,
+) -> LeanRustData<LeanOwned> {
+    let mut ext = unsafe { LeanExternal::<RustData, LeanOwned>::from_raw(obj.into_raw()) };
+    if let Some(data) = ext.get_mut() {
+        data.x = new_x;
+        LeanRustData::new(ext.into())
+    } else {
+        let mut data = ext.get().clone();
+        data.x = new_x;
+        LeanRustData::new(LeanExternal::alloc(&RUST_DATA_CLASS, data).into())
+    }
+}
+
+// =============================================================================
 // External object: multiple field reads from same borrowed handle
 // =============================================================================
 
@@ -1103,6 +1221,89 @@ pub(crate) extern "C" fn rs_external_all_fields(
         unsafe { LeanExternal::<RustData, LeanBorrowed<'_>>::from_raw_borrowed(obj.as_raw()) };
     let result = format!("{}:{}:{}", ext.get().x, ext.get().y, ext.get().label);
     LeanString::new(&result)
+}
+
+// =============================================================================
+// Memory management stress tests (Valgrind targets)
+// =============================================================================
+// These tests allocate and drop objects in Rust without returning them to Lean.
+// Valgrind detects leaks (missing lean_dec), double-frees (extra lean_dec),
+// or use-after-free from incorrect ownership transfer.
+
+/// Allocate every object type in Rust and drop them all without returning to Lean.
+/// Tests that Drop impls correctly call lean_dec and that external finalizers
+/// free the boxed Rust data.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_alloc_drop_stress(_unit: LeanBorrowed<'_>) -> u8 {
+    // Array with elements
+    let arr = LeanArray::alloc(3);
+    arr.set(0, LeanOwned::from_nat_u64(1));
+    arr.set(1, LeanOwned::from_nat_u64(2));
+    arr.set(2, LeanOwned::from_nat_u64(3));
+
+    // ByteArray
+    let _ba = LeanByteArray::from_bytes(&[1, 2, 3, 4, 5]);
+
+    // String
+    let _s = LeanString::new("hello world");
+
+    // External — finalizer must run Drop on RustData (freeing the String inside)
+    let _ext = LeanExternal::alloc(&RUST_DATA_CLASS, RustData {
+        x: 42,
+        y: 99,
+        label: String::from("this string must be freed by the finalizer"),
+    });
+
+    // List (nil)
+    let _nil = LeanList::nil();
+
+    // Nat (heap-allocated, not scalar)
+    let _nat = LeanOwned::from_nat_u64(u64::MAX);
+
+    // All variables drop here at end of scope
+    1
+}
+
+/// Chain mutations in Rust where each step frees the previous object.
+/// Tests that uset/push/pop/uswap correctly dec the consumed array.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_mutation_drop_stress(_unit: LeanBorrowed<'_>) -> u8 {
+    // Array: each mutation consumes the old array
+    let arr = LeanArray::alloc(3);
+    arr.set(0, LeanOwned::from_nat_u64(10));
+    arr.set(1, LeanOwned::from_nat_u64(20));
+    arr.set(2, LeanOwned::from_nat_u64(30));
+    let arr = arr.push(LeanOwned::from_nat_u64(40));
+    let arr = arr.uset(0, LeanOwned::from_nat_u64(99));
+    let arr = arr.uswap(0, 2);
+    let _arr = arr.pop();
+
+    // ByteArray: push and uset chain
+    let ba = LeanByteArray::from_bytes(&[1, 2, 3]);
+    let ba = ba.push(4);
+    let _ba = ba.uset(0, 255);
+
+    // String: append and push chain
+    let s = LeanString::new("hello");
+    let suffix = LeanString::new(" world");
+    let s = s.append(&suffix);
+    let _s = s.push(u32::from('!'));
+    // suffix also drops here
+
+    1
+}
+
+/// Clone a borrowed array N times, read from each clone, drop all.
+/// Tests that lean_inc (via to_owned_ref) and lean_dec (via Drop) are balanced.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_clone_drop_stress(arr: LeanArray<LeanBorrowed<'_>>, n: usize) -> usize {
+    let mut total_len = 0;
+    for _ in 0..n {
+        let owned = arr.inner().to_owned_ref(); // lean_inc
+        total_len += unsafe { include::lean_array_size(owned.as_raw()) };
+        // owned drops → lean_dec
+    }
+    total_len
 }
 
 // =============================================================================

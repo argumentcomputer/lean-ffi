@@ -181,6 +181,57 @@ instance : Shrinkable (Except String Nat) where
     | .ok n => .ok 0 :: (Shrinkable.shrink n |>.map .ok)
     | .error s => .ok 0 :: (Shrinkable.shrink s |>.map .error)
 
+/-! ## Scalar type generators -/
+
+def genUInt32 : Gen UInt32 := UInt32.ofNat <$> choose Nat 0 (2^32 - 1)
+def genUInt64 : Gen UInt64 := UInt64.ofNat <$> choose Nat 0 (2^64 - 1)
+def genUSize : Gen USize := USize.ofNat <$> choose Nat 0 (2^64 - 1)
+
+def genScalarStruct : Gen ScalarStruct := do
+  let obj ← genSmallNat
+  let u8 ← UInt8.ofNat <$> choose Nat 0 255
+  let u32 ← genUInt32
+  let u64 ← genUInt64
+  pure ⟨obj, u8, u32, u64⟩
+
+/-! ## Nested collection generators -/
+
+def genNestedArrayNat : Gen (Array (Array Nat)) := do
+  let len ← choose Nat 0 5
+  let mut result := #[]
+  for _ in [:len] do
+    result := result.push (← genArrayNat)
+  pure result
+
+def genNestedListNat : Gen (List (List Nat)) := do
+  let len ← choose Nat 0 5
+  let mut result := []
+  for _ in [:len] do
+    result := (← genListNat) :: result
+  pure result.reverse
+
+/-! ## Shrinkable instances for new types -/
+
+instance : Shrinkable UInt32 where
+  shrink n := if n == 0 then [] else [n / 2]
+
+instance : Shrinkable UInt64 where
+  shrink n := if n == 0 then [] else [n / 2]
+
+instance : Shrinkable USize where
+  shrink n := if n == 0 then [] else [n / 2]
+
+instance : Shrinkable ScalarStruct where
+  shrink s := if s.obj == 0 then [] else [⟨s.obj / 2, s.u8val, s.u32val, s.u64val⟩]
+
+instance : Shrinkable (Array (Array Nat)) where
+  shrink arr := if arr.isEmpty then [] else [arr.pop]
+
+instance : Shrinkable (List (List Nat)) where
+  shrink xs := match xs with
+    | [] => []
+    | _ :: tail => [tail]
+
 /-! ## SampleableExt instances -/
 
 instance : SampleableExt Nat := SampleableExt.mkSelfContained genNat
@@ -193,5 +244,11 @@ instance : SampleableExt NatTree := SampleableExt.mkSelfContained (genNatTree 4)
 instance : SampleableExt (Option Nat) := SampleableExt.mkSelfContained genOptionNat
 instance : SampleableExt (Nat × Nat) := SampleableExt.mkSelfContained genProdNatNat
 instance : SampleableExt (Except String Nat) := SampleableExt.mkSelfContained genExceptStringNat
+instance : SampleableExt UInt32 := SampleableExt.mkSelfContained genUInt32
+instance : SampleableExt UInt64 := SampleableExt.mkSelfContained genUInt64
+instance : SampleableExt USize := SampleableExt.mkSelfContained genUSize
+instance : SampleableExt ScalarStruct := SampleableExt.mkSelfContained genScalarStruct
+instance : SampleableExt (Array (Array Nat)) := SampleableExt.mkSelfContained genNestedArrayNat
+instance : SampleableExt (List (List Nat)) := SampleableExt.mkSelfContained genNestedListNat
 
 end

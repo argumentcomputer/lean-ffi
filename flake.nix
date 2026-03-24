@@ -68,7 +68,8 @@
               pkgs.libiconv
             ];
         };
-        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --features test-ffi";});
+        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked";});
+        rustPkgTest = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --features test-ffi";});
 
         # Lake test package
         lake2nix = pkgs.callPackage lean4-nix.lake {};
@@ -84,7 +85,7 @@
           # Link the Rust static lib so Lake can find it
           postConfigure = ''
             mkdir -p target/release
-            ln -s ${rustPkg}/lib/liblean_ffi.a target/release/liblean_ffi_test.a
+            ln -s ${rustPkgTest}/lib/liblean_ffi.a target/release/liblean_ffi_test.a
           '';
         };
       in {

@@ -84,6 +84,83 @@ impl LeanPutResponse<LeanOwned> {
 }
 ```
 
+### External objects (`LeanExternal<T, R>`)
+
+External objects let you store arbitrary Rust data inside a Lean object. Lean
+sees an opaque type; Rust controls allocation, access, mutation, and cleanup.
+
+**Register** an external class exactly once, using `OnceLock` or `LazyLock`:
+
+```rust
+use std::sync::LazyLock;
+use lean_ffi::object::{ExternalClass, LeanExternal, LeanOwned, LeanBorrowed};
+
+struct Hasher { state: Vec<u8> }
+
+// register_with_drop<T> generates a finalizer that calls drop(Box::from_raw(ptr))
+// and a no-op foreach (no Lean objects inside T to traverse).
+static HASHER_CLASS: LazyLock<ExternalClass> =
+    LazyLock::new(ExternalClass::register_with_drop::<Hasher>);
+```
+
+**Create** — `LeanExternal::alloc` boxes the value and returns an owned
+external object:
+
+```rust
+// Lean: @[extern "rs_hasher_new"] opaque Hasher.new : Unit → Hasher
+#[unsafe(no_mangle)]
+extern "C" fn rs_hasher_new(_unit: LeanOwned) -> LeanExternal<Hasher, LeanOwned> {
+    LeanExternal::alloc(&HASHER_CLASS, Hasher { state: Vec::new() })
+}
+```
+
+**Read** — `.get()` borrows the stored `&T`. Works on both owned and borrowed
+references:
+
+```rust
+// Lean: @[extern "rs_hasher_bytes"] opaque Hasher.bytes : @& Hasher → ByteArray
+#[unsafe(no_mangle)]
+extern "C" fn rs_hasher_bytes(
+    h: LeanExternal<Hasher, LeanBorrowed<'_>>,  // @& → borrowed
+) -> LeanByteArray<LeanOwned> {
+    LeanByteArray::from_bytes(&h.get().state)  // &Hasher — no clone, no refcount change
+}
+```
+
+**Update** — `.get_mut()` returns `Option<&mut T>`, which is `Some` when the
+object is exclusively owned (`m_rc == 1`). This enables
+in-place mutation without allocating a new external object. When shared `.get_mut()`
+returns `None` and instead clones into a new object on write.
+
+```rust
+// Lean: @[extern "rs_hasher_update"] opaque Hasher.update : Hasher → @& ByteArray → Hasher
+#[unsafe(no_mangle)]
+extern "C" fn rs_hasher_update(
+    mut h: LeanExternal<Hasher, LeanOwned>,
+    input: LeanByteArray<LeanBorrowed<'_>>,
+) -> LeanExternal<Hasher, LeanOwned> {
+    if let Some(state) = h.get_mut() {
+        state.state.extend_from_slice(input.as_bytes());  // mutate in place
+        h
+    } else {
+        // shared — clone and allocate a new external object
+        let mut new_state = h.get().clone();
+        new_state.state.extend_from_slice(input.as_bytes());
+        LeanExternal::alloc(&HASHER_CLASS, new_state)
+    }
+}
+```
+
+**Delete** — follows the same ownership rules as other domain types:
+
+- `LeanExternal<T, LeanOwned>` — `Drop` calls `lean_dec`. When the refcount
+  reaches zero, Lean calls the class finalizer, which (via `register_with_drop`)
+  runs `drop(Box::from_raw(ptr))` to free the Rust value.
+- `LeanExternal<T, LeanBorrowed<'_>>` — no refcount changes, no cleanup.
+  Use for `@&` parameters.
+- Converting to `LeanOwned` (e.g. to store in a ctor field): call `.into()`.
+
+
 ### FFI function signatures
 
 Use domain types in `extern "C"` function signatures. The ownership type parameter
@@ -134,6 +211,44 @@ let size = ctor.get_u64(1, 0);      // u64 at scalar offset 0 (past 1 non-scalar
 let flag = ctor.get_bool(1, 8);     // bool at scalar offset 8
 ```
 
+## In-Place Mutation
+
+Lean's runtime supports in-place mutation when an object is **exclusively owned**
+(`m_rc == 1`, single-threaded mode). When shared, the object is copied first.
+`LeanRef::is_exclusive()` exposes this check.
+
+These methods consume `self` and return a (possibly new) object, mutating in
+place when exclusive or copying first when shared:
+
+### `LeanArray`
+
+| Method | C equivalent | Description |
+|--------|--------------|-------------|
+| `set(&self, i, val)` | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
+| `uset(self, i, val)` | `lean_array_uset` | Set element (copies if shared) |
+| `push(self, val)` | `lean_array_push` | Append an element |
+| `pop(self)` | `lean_array_pop` | Remove the last element |
+| `uswap(self, i, j)` | `lean_array_uswap` | Swap elements at `i` and `j` |
+
+### `LeanByteArray`
+
+| Method | C equivalent | Description |
+|--------|--------------|-------------|
+| `set_data(&self, data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
+| `uset(self, i, val)` | `lean_byte_array_uset` | Set byte (copies if shared) |
+| `push(self, val)` | `lean_byte_array_push` | Append a byte |
+| `copy(self)` | `lean_copy_byte_array` | Deep copy into a new exclusive array |
+
+### `LeanString`
+
+| Method | C equivalent | Description |
+|--------|--------------|-------------|
+| `push(self, c)` | `lean_string_push` | Append a UTF-32 character |
+| `append(self, other)` | `lean_string_append` | Concatenate another string (borrowed) |
+
+`LeanExternal<T>` also supports in-place mutation via `get_mut()` — see the
+**Update** section under [External objects](#external-objects-leanexternalt-r).
+
 ## Notes
 
 ### Rust panic behavior
@@ -162,10 +277,13 @@ without special handling.
 ### `lean_string_size` vs `lean_string_byte_size`
 
 `lean_string_byte_size` returns the **total object memory size**
-(`sizeof(lean_string_object) + m_size`), not the string data length.
+(`sizeof(lean_string_object) + capacity`), not the string data length.
 Use `lean_string_size` instead, which returns `m_size` — the number of data
-bytes including the NUL terminator. The `LeanString::byte_len()` wrapper handles
-this correctly by returning `lean_string_size(obj) - 1`.
+bytes including the NUL terminator. `LeanString` wraps these correctly:
+
+- `byte_len()` — data bytes excluding NUL (`m_size - 1`)
+- `length()` — UTF-8 character count (`m_length`)
+- `as_str()` — view as `&str`
 
 ## License
 
