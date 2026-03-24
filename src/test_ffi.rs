@@ -1248,11 +1248,14 @@ pub(crate) extern "C" fn rs_alloc_drop_stress(_unit: LeanBorrowed<'_>) -> u8 {
     let _s = LeanString::new("hello world");
 
     // External — finalizer must run Drop on RustData (freeing the String inside)
-    let _ext = LeanExternal::alloc(&RUST_DATA_CLASS, RustData {
-        x: 42,
-        y: 99,
-        label: String::from("this string must be freed by the finalizer"),
-    });
+    let _ext = LeanExternal::alloc(
+        &RUST_DATA_CLASS,
+        RustData {
+            x: 42,
+            y: 99,
+            label: String::from("this string must be freed by the finalizer"),
+        },
+    );
 
     // List (nil)
     let _nil = LeanList::nil();
