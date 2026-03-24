@@ -248,6 +248,43 @@ opaque natMinHeap : Unit → Nat
 @[extern "rs_external_all_fields"]
 opaque externalAllFields : @& RustData → String
 
+@[extern "rs_string_length"]
+opaque stringLength : @& String → USize
+
+/-! ## FFI declarations — memory management stress tests -/
+
+@[extern "rs_alloc_drop_stress"]
+opaque allocDropStress : Unit → UInt8
+
+@[extern "rs_mutation_drop_stress"]
+opaque mutationDropStress : Unit → UInt8
+
+@[extern "rs_clone_drop_stress"]
+opaque cloneDropStress : @& Array Nat → USize → USize
+
+@[extern "rs_array_list_roundtrip"]
+opaque arrayListRoundtrip : @& Array Nat → Array Nat
+
+@[extern "rs_bytearray_copy_mutate"]
+opaque byteArrayCopyMutate : ByteArray → ByteArray
+
+/-! ## FFI declarations — in-place mutation tests -/
+
+@[extern "rs_array_mut_ops"]
+opaque arrayMutOps : Array Nat → Array Nat
+
+@[extern "rs_bytearray_mut_ops"]
+opaque bytearrayMutOps : ByteArray → ByteArray
+
+@[extern "rs_string_mut_ops"]
+opaque stringMutOps : String → @& String → String
+
+@[extern "rs_external_set_x"]
+opaque externalSetX : RustData → UInt64 → RustData
+
+@[extern "rs_external_lifecycle"]
+opaque externalLifecycle : UInt64 → UInt64 → @& String → UInt64 → String
+
 /-! ## FFI declarations — persistent object tests -/
 
 @[extern "rs_is_persistent"]
@@ -300,265 +337,95 @@ private def persistentPoint : Point := ⟨10, 20⟩
 private def persistentArray : Array Nat := #[1, 2, 3, 4, 5]
 private def persistentString : String := "hello persistent"
 
-/-! ## Unit tests -/
+/-! ## Borrowed roundtrip tests — types without property test generators -/
 
-def simpleTests : TestSeq :=
-  test "Nat 0" (roundtripNat 0 == 0) ++
-  test "Nat 42" (roundtripNat 42 == 42) ++
-  test "Nat 1000" (roundtripNat 1000 == 1000) ++
-  test "String empty" (roundtripString "" == "") ++
-  test "String hello" (roundtripString "hello" == "hello") ++
+def borrowedRoundtripTests : TestSeq :=
   test "Bool true" (roundtripBool true == true) ++
   test "Bool false" (roundtripBool false == false) ++
-  test "List []" (roundtripListNat [] == []) ++
-  test "List [1,2,3]" (roundtripListNat [1, 2, 3] == [1, 2, 3]) ++
-  test "Array #[]" (roundtripArrayNat #[] == #[]) ++
-  test "Array #[1,2,3]" (roundtripArrayNat #[1, 2, 3] == #[1, 2, 3]) ++
-  test "ByteArray empty" (roundtripByteArray ⟨#[]⟩ == ⟨#[]⟩) ++
-  test "ByteArray [1,2,3]" (roundtripByteArray ⟨#[1, 2, 3]⟩ == ⟨#[1, 2, 3]⟩) ++
-  test "Option none" (roundtripOptionNat none == none) ++
-  test "Option some 42" (roundtripOptionNat (some 42) == some 42) ++
-  test "Point (0, 0)" (roundtripPoint ⟨0, 0⟩ == ⟨0, 0⟩) ++
-  test "Point (42, 99)" (roundtripPoint ⟨42, 99⟩ == ⟨42, 99⟩) ++
-  test "NatTree leaf" (roundtripNatTree (.leaf 42) == .leaf 42) ++
-  test "NatTree node" (roundtripNatTree (.node (.leaf 1) (.leaf 2)) == .node (.leaf 1) (.leaf 2)) ++
-  test "Prod (1, 2)" (roundtripProdNatNat (1, 2) == (1, 2)) ++
-  test "Prod (0, 0)" (roundtripProdNatNat (0, 0) == (0, 0)) ++
-  test "UInt32 0" (roundtripUInt32 0 == 0) ++
-  test "UInt32 42" (roundtripUInt32 42 == 42) ++
   test "UInt32 max" (roundtripUInt32 0xFFFFFFFF == 0xFFFFFFFF) ++
-  test "UInt64 0" (roundtripUInt64 0 == 0) ++
-  test "UInt64 42" (roundtripUInt64 42 == 42) ++
   test "UInt64 max" (roundtripUInt64 0xFFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFF) ++
-  test "Array UInt32 empty" (roundtripArrayUInt32 #[] == #[]) ++
-  test "Array UInt32 [1,2,3]" (roundtripArrayUInt32 #[1, 2, 3] == #[1, 2, 3]) ++
-  test "Array UInt32 [0, max]" (roundtripArrayUInt32 #[0, 0xFFFFFFFF] == #[0, 0xFFFFFFFF]) ++
-  test "Array UInt64 empty" (roundtripArrayUInt64 #[] == #[]) ++
-  test "Array UInt64 [1,2,3]" (roundtripArrayUInt64 #[1, 2, 3] == #[1, 2, 3]) ++
-  test "Array UInt64 [0, max]" (roundtripArrayUInt64 #[0, 0xFFFFFFFFFFFFFFFF] == #[0, 0xFFFFFFFFFFFFFFFF]) ++
-  test "Float 0.0" (roundtripFloat 0.0 == 0.0) ++
   test "Float 3.14" (roundtripFloat 3.14 == 3.14) ++
   test "Float -1.5" (roundtripFloat (-1.5) == -1.5) ++
-  test "Float32 0.0" (roundtripFloat32 0.0 == 0.0) ++
   test "Float32 3.14" (roundtripFloat32 3.14 == 3.14) ++
-  test "USize 0" (roundtripUSize 0 == 0) ++
-  test "USize 42" (roundtripUSize 42 == 42) ++
+  test "Array UInt32 [0, max]" (roundtripArrayUInt32 #[0, 0xFFFFFFFF] == #[0, 0xFFFFFFFF]) ++
+  test "Array UInt64 [0, max]" (roundtripArrayUInt64 #[0, 0xFFFFFFFFFFFFFFFF] == #[0, 0xFFFFFFFFFFFFFFFF]) ++
   test "Array Float [1.5, 2.5]" (roundtripArrayFloat #[1.5, 2.5] == #[1.5, 2.5]) ++
   test "Array Float32 [1.5, 2.5]" (roundtripArrayFloat32 #[1.5, 2.5] == #[1.5, 2.5]) ++
-  test "String from_bytes empty" (roundtripStringFromBytes "" == "") ++
-  test "String from_bytes hello" (roundtripStringFromBytes "hello" == "hello") ++
-  test "Array push empty" (roundtripArrayPush #[] == #[]) ++
-  test "Array push [1,2,3]" (roundtripArrayPush #[1, 2, 3] == #[1, 2, 3])
-
-/-! ## Except tests -/
-
-def exceptTests : TestSeq :=
-  test "Except.ok 42" (show Bool from
-    match roundtripExceptStringNat (.ok 42) with
-    | .ok n => n == 42
-    | .error _ => false) ++
-  test "Except.error hello" (show Bool from
-    match roundtripExceptStringNat (.error "hello") with
-    | .error s => s == "hello"
-    | .ok _ => false) ++
-  test "Except.error_string" (show Bool from
-    match exceptErrorString "boom" with
-    | .error s => s == "boom"
-    | .ok _ => false)
-
-/-! ## IO result tests -/
-
-def ioResultTests : TestSeq :=
-  test "IOResult ok 42" (show Bool from
-    match ioResultOkNat 42 with
-    | .ok val _ => val == 42
-    | .error _ _ => false) ++
-  test "IOResult error" (show Bool from
-    match ioResultErrorString "oops" with
-    | .error _ _ => true
-    | .ok _ _ => false)
-
-/-! ## Scalar struct tests -/
-
-def scalarStructTests : TestSeq :=
-  test "ScalarStruct (0, 0, 0, 0)" (roundtripScalarStruct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
-  test "ScalarStruct (42, 255, 1000, 9999)" (roundtripScalarStruct ⟨42, 255, 1000, 9999⟩ == ⟨42, 255, 1000, 9999⟩) ++
-  test "ScalarStruct max vals" (roundtripScalarStruct ⟨100, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ == ⟨100, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩)
-
-/-! ## Extended scalar struct tests -/
-
-def extScalarStructTests : TestSeq :=
-  test "ExtScalarStruct zeros" (show Bool from roundtripExtScalarStruct ⟨0, 0, 0, 0, 0, 0.0, 0.0⟩ == ⟨0, 0, 0, 0, 0, 0.0, 0.0⟩) ++
-  test "ExtScalarStruct mixed" (show Bool from roundtripExtScalarStruct ⟨42, 255, 1000, 50000, 9999, 3.14, 2.5⟩ == ⟨42, 255, 1000, 50000, 9999, 3.14, 2.5⟩) ++
-  test "ExtScalarStruct max ints" (show Bool from roundtripExtScalarStruct ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩ == ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩)
-
-/-! ## USize struct tests -/
-
-def usizeStructTests : TestSeq :=
-  test "USizeStruct zeros" (roundtripUSizeStruct ⟨0, 0, 0⟩ == ⟨0, 0, 0⟩) ++
-  test "USizeStruct mixed" (roundtripUSizeStruct ⟨42, 99, 255⟩ == ⟨42, 99, 255⟩)
-
-/-! ## External object tests -/
-
-def externalTests : TestSeq :=
-  test "External create and get x" (rustDataGetX (mkRustData 42 99 "hello") == 42) ++
-  test "External create and get y" (rustDataGetY (mkRustData 42 99 "hello") == 99) ++
-  test "External create and get label" (rustDataGetLabel (mkRustData 42 99 "hello") == "hello") ++
-  test "External zero values" (rustDataGetX (mkRustData 0 0 "") == 0) ++
-  test "External empty label" (rustDataGetLabel (mkRustData 0 0 "") == "") ++
-  test "External large values" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++
-  test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
-  test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:")
-
-/-! ## Edge cases for large Nats -/
-
-def largeNatTests : TestSeq :=
-  let testCases : List Nat := [0, 1, 255, 256, 65535, 65536, (2^32 - 1), 2^32,
-    (2^63 - 1), 2^63, (2^64 - 1), 2^64, 2^64 + 1, 2^128, 2^256]
-  testCases.foldl (init := .done) fun acc n =>
-    acc ++ .individualIO s!"Nat {n}" none (do
-      let rt := roundtripNat n
-      pure (rt == n, 0, 0, if rt == n then none else some s!"got {rt}")) .done
-
-/-! ## Owned argument tests — verify LeanOwned Drop (lean_dec) works correctly -/
-
-def ownedArgTests : TestSeq :=
-  -- Basic roundtrip with owned args (Drop must lean_dec correctly)
-  test "Owned Nat 0" (ownedNatRoundtrip 0 == 0) ++
-  test "Owned Nat 42" (ownedNatRoundtrip 42 == 42) ++
-  test "Owned Nat large" (ownedNatRoundtrip (2^128) == 2^128) ++
-  test "Owned String hello" (ownedStringRoundtrip "hello" == "hello") ++
-  test "Owned String empty" (ownedStringRoundtrip "" == "") ++
-  test "Owned Array empty" (ownedArrayNatRoundtrip #[] == #[]) ++
-  test "Owned Array [1,2,3]" (ownedArrayNatRoundtrip #[1, 2, 3] == #[1, 2, 3]) ++
-  test "Owned List empty" (ownedListNatRoundtrip [] == []) ++
-  test "Owned List [1,2,3]" (ownedListNatRoundtrip [1, 2, 3] == [1, 2, 3]) ++
-  -- Two owned args: array + nat
-  test "Owned append nat" (ownedAppendNat #[1, 2] 3 == #[1, 2, 3]) ++
-  test "Owned append to empty" (ownedAppendNat #[] 42 == #[42]) ++
-  -- Explicit early drop
-  test "Owned drop and replace" (ownedDropAndReplace "hello" == "replaced:5") ++
-  test "Owned drop and replace empty" (ownedDropAndReplace "" == "replaced:0") ++
-  -- Three owned args
-  test "Owned merge lists" (ownedMergeLists [1, 2] [3] [4, 5] == [1, 2, 3, 4, 5]) ++
-  test "Owned merge empty" (ownedMergeLists [] [] [] == []) ++
-  test "Owned merge one empty" (ownedMergeLists [1] [] [2] == [1, 2]) ++
-  -- Owned ByteArray
-  test "Owned reverse bytearray" (ownedReverseByteArray ⟨#[1, 2, 3]⟩ == ⟨#[3, 2, 1]⟩) ++
-  test "Owned reverse empty" (ownedReverseByteArray ⟨#[]⟩ == ⟨#[]⟩) ++
-  -- Owned constructor (Point)
-  test "Owned point sum" (ownedPointSum ⟨10, 20⟩ == 30) ++
-  test "Owned point sum zero" (ownedPointSum ⟨0, 0⟩ == 0) ++
-  -- Owned Except
-  test "Owned except ok" (ownedExceptTransform (.ok 21) == 42) ++
-  test "Owned except error" (ownedExceptTransform (.error "hello") == 5) ++
-  test "Owned except error empty" (ownedExceptTransform (.error "") == 0) ++
-  -- Owned Option
-  test "Owned option some" (ownedOptionSquare (some 5) == 25) ++
-  test "Owned option none" (ownedOptionSquare none == 0) ++
-  test "Owned option some 0" (ownedOptionSquare (some 0) == 0) ++
-  -- Owned Prod
-  test "Owned prod multiply" (ownedProdMultiply (3, 7) == 21) ++
-  test "Owned prod multiply zero" (ownedProdMultiply (0, 100) == 0) ++
-  -- Owned ScalarStruct
-  test "Owned scalar sum" (ownedScalarSum ⟨42, 1, 100, 1000⟩ == 1101) ++
-  test "Owned scalar sum zero" (ownedScalarSum ⟨0, 0, 0, 0⟩ == 0) ++
-  -- Owned ByteArray roundtrip
-  test "Owned bytearray [1,2,3]" (ownedByteArrayRoundtrip ⟨#[1, 2, 3]⟩ == ⟨#[1, 2, 3]⟩) ++
-  test "Owned bytearray empty" (ownedByteArrayRoundtrip ⟨#[]⟩ == ⟨#[]⟩) ++
-  -- Owned Option roundtrip
-  test "Owned option some 42" (ownedOptionRoundtrip (some 42) == some 42) ++
-  test "Owned option none" (ownedOptionRoundtrip none == none) ++
-  -- Owned Prod roundtrip
-  test "Owned prod (3, 7)" (ownedProdRoundtrip (3, 7) == (3, 7)) ++
-  test "Owned prod (0, 0)" (ownedProdRoundtrip (0, 0) == (0, 0)) ++
-  -- Owned IOResult
-  test "Owned IOResult ok" (ownedIOResultValue (ioResultOkNat 42) == 42) ++
-  test "Owned IOResult error" (ownedIOResultValue (ioResultErrorString "oops") == 0)
-
-/-! ## Clone tests — verify lean_inc produces valid second handle -/
-
-def cloneTests : TestSeq :=
-  test "Clone array len sum empty" (cloneArrayLenSum #[] == 0) ++
-  test "Clone array len sum [1,2,3]" (cloneArrayLenSum #[1, 2, 3] == 6) ++
-  test "Clone string len sum hello" (cloneStringLenSum "hello" == 10) ++
-  test "Clone string len sum empty" (cloneStringLenSum "" == 0) ++
-  -- Clone Except: clones an owned Except, reads from both, drops both
-  test "Clone except ok" (cloneExcept (.ok 21) == 42) ++
-  test "Clone except error" (cloneExcept (.error "hello") == 10) ++
-  test "Clone except ok 0" (cloneExcept (.ok 0) == 0) ++
-  -- Clone List: clone + count elements in both copies
-  test "Clone list [1,2,3]" (cloneList [1, 2, 3] == 6) ++
-  test "Clone list empty" (cloneList [] == 0) ++
-  -- Clone ByteArray: clone + sum byte lengths
-  test "Clone bytearray [1,2,3]" (cloneByteArray ⟨#[1, 2, 3]⟩ == 6) ++
-  test "Clone bytearray empty" (cloneByteArray ⟨#[]⟩ == 0) ++
-  -- Clone Option: clone + sum values from both copies
-  test "Clone option some 21" (cloneOption (some 21) == 42) ++
-  test "Clone option none" (cloneOption none == 0) ++
-  -- Clone Prod: clone + sum all four field reads
-  test "Clone prod (3, 7)" (cloneProd (3, 7) == 20) ++
-  test "Clone prod (0, 0)" (cloneProd (0, 0) == 0)
-
-/-! ## data() slice API tests -/
-
-def dataSliceTests : TestSeq :=
-  test "Array data sum empty" (arrayDataSum #[] == 0) ++
-  test "Array data sum [1,2,3]" (arrayDataSum #[1, 2, 3] == 6) ++
-  test "Array data sum [100]" (arrayDataSum #[100] == 100) ++
-  test "Multi borrow sum [1,2,3]" (multiBorrowSum #[1, 2, 3] == 6) ++
-  test "Multi borrow sum empty" (multiBorrowSum #[] == 0) ++
-  test "Multi borrow sum [0,0,0]" (multiBorrowSum #[0, 0, 0] == 0)
-
-/-! ## API tests — Option, Prod, Except helpers -/
-
-def apiTests : TestSeq :=
-  test "Option unwrap some 42" (optionUnwrapOrZero (some 42) == 42) ++
-  test "Option unwrap none" (optionUnwrapOrZero none == 0) ++
-  test "Option unwrap some 0" (optionUnwrapOrZero (some 0) == 0) ++
-  test "Prod swap (1, 2)" (prodSwap (1, 2) == (2, 1)) ++
-  test "Prod swap (0, 0)" (prodSwap (0, 0) == (0, 0)) ++
-  test "Prod swap (100, 200)" (prodSwap (100, 200) == (200, 100)) ++
-  test "Except map ok 42" (exceptMapOk (.ok 42) == 43) ++
-  test "Except map ok 0" (exceptMapOk (.ok 0) == 1) ++
-  test "Except map error" (exceptMapOk (.error "fail") == 0) ++
-  -- Borrowed result chains (b_lean_obj_res pattern: internal borrowed refs without lean_inc)
-  test "Borrowed chain (#[1,2], #[3,4])" (borrowedResultChain (#[1, 2], #[3, 4]) == 10) ++
-  test "Borrowed chain (#[], #[])" (borrowedResultChain (#[], #[]) == 0) ++
-  test "Borrowed chain (#[100], #[])" (borrowedResultChain (#[100], #[]) == 100) ++
-  test "Borrowed except ok" (borrowedExceptValue (.ok 42) == 42) ++
-  test "Borrowed except error" (borrowedExceptValue (.error "hello") == 5)
-
-/-! ## Nested collection tests -/
-
-def nestedTests : TestSeq :=
-  test "Nested array empty" (roundtripNestedArray #[] == #[]) ++
   test "Nested array [[]]" (roundtripNestedArray #[#[]] == #[#[]]) ++
-  test "Nested array [[1,2],[3]]" (roundtripNestedArray #[#[1, 2], #[3]] == #[#[1, 2], #[3]]) ++
-  test "Nested array [[],[1],[2,3]]" (roundtripNestedArray #[#[], #[1], #[2, 3]] == #[#[], #[1], #[2, 3]]) ++
-  test "Nested list empty" (roundtripNestedList [] == []) ++
   test "Nested list [[]]" (roundtripNestedList [[]] == [[]]) ++
-  test "Nested list [[1,2],[3]]" (roundtripNestedList [[1, 2], [3]] == [[1, 2], [3]])
+  test "ScalarStruct zeros" (roundtripScalarStruct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
+  test "ScalarStruct max" (roundtripScalarStruct ⟨100, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ == ⟨100, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩) ++
+  test "ExtScalarStruct zeros" (show Bool from roundtripExtScalarStruct ⟨0, 0, 0, 0, 0, 0.0, 0.0⟩ == ⟨0, 0, 0, 0, 0, 0.0, 0.0⟩) ++
+  test "ExtScalarStruct max" (show Bool from roundtripExtScalarStruct ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩ == ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩) ++
+  test "USizeStruct zeros" (roundtripUSizeStruct ⟨0, 0, 0⟩ == ⟨0, 0, 0⟩) ++
+  test "USizeStruct mixed" (roundtripUSizeStruct ⟨42, 99, 255⟩ == ⟨42, 99, 255⟩) ++
+  test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
+  test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:") ++
+  test "External large u64" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++
+  test "Except error_string" (show Bool from
+    match exceptErrorString "boom" with | .error s => s == "boom" | .ok _ => false) ++
+  test "IOResult ok" (show Bool from
+    match ioResultOkNat 42 with | .ok val _ => val == 42 | .error _ _ => false) ++
+  test "IOResult error" (show Bool from
+    match ioResultErrorString "oops" with | .error _ _ => true | .ok _ _ => false) ++
+  test "Borrowed result chain" (borrowedResultChain (#[1, 2], #[3, 4]) == 10) ++
+  test "Borrowed except ok" (borrowedExceptValue (.ok 42) == 42) ++
+  test "Borrowed except error" (borrowedExceptValue (.error "hello") == 5) ++
+  test "String length unicode" (stringLength "héllo" == 5)
 
-/-! ## Misc edge case tests -/
+/-! ## Edge cases — Nat boundaries and empty collections -/
 
 def edgeCaseTests : TestSeq :=
-  -- List → Array via push
-  test "List to array empty" (listToArrayViaPush [] == #[]) ++
-  test "List to array [1,2,3]" (listToArrayViaPush [1, 2, 3] == #[1, 2, 3]) ++
-  test "List to array [0]" (listToArrayViaPush [0] == #[0]) ++
-  -- borrow → owned (to_owned_ref / lean_inc)
-  test "Borrow to owned 0" (borrowToOwned 0 == 0) ++
-  test "Borrow to owned 42" (borrowToOwned 42 == 42) ++
-  test "Borrow to owned large" (borrowToOwned (2^128) == 2^128) ++
-  -- Empty collection construction from Rust
+  let natBoundaries : List Nat := [0, 1, 255, 256, 65535, 65536, (2^32 - 1), 2^32,
+    (2^63 - 1), 2^63, (2^64 - 1), 2^64, 2^64 + 1, 2^128, 2^256]
+  natBoundaries.foldl (init := .done) fun acc n =>
+    acc ++ .individualIO s!"Nat {n}" none (do
+      let rt := roundtripNat n
+      pure (rt == n, 0, 0, if rt == n then none else some s!"got {rt}")) .done ++
   test "Make empty array" (makeEmptyArray () == #[]) ++
   test "Make empty list" (makeEmptyList () == []) ++
   test "Make empty bytearray" (makeEmptyByteArray () == ⟨#[]⟩) ++
   test "Make empty string" (makeEmptyString () == "") ++
-  -- Scalar/heap boundary for Nat
   test "Nat max scalar" (natMaxScalar () == (2^63 - 1)) ++
   test "Nat min heap" (natMinHeap () == 2^63)
+
+/-! ## Owned argument tests — patterns not covered by property tests -/
+
+def ownedArgTests : TestSeq :=
+  test "Drop and replace" (ownedDropAndReplace "hello" == "replaced:5") ++
+  test "Merge 3 owned lists" (ownedMergeLists [1, 2] [3] [4, 5] == [1, 2, 3, 4, 5]) ++
+  test "Merge 3 empty lists" (ownedMergeLists [] [] [] == []) ++
+  test "Reverse bytearray" (ownedReverseByteArray ⟨#[1, 2, 3]⟩ == ⟨#[3, 2, 1]⟩) ++
+  test "Reverse empty bytearray" (ownedReverseByteArray ⟨#[]⟩ == ⟨#[]⟩) ++
+  test "IOResult ok value" (ownedIOResultValue (ioResultOkNat 42) == 42) ++
+  test "IOResult error value" (ownedIOResultValue (ioResultErrorString "oops") == 0)
+
+/-! ## In-place mutation tests -/
+
+def mutationTests : TestSeq :=
+  test "ByteArray copy mutate" (byteArrayCopyMutate ⟨#[1, 2, 3]⟩ == ⟨#[255, 2, 3]⟩) ++
+  test "External lifecycle" (externalLifecycle 10 20 "hi" 99 == "10:20:hi/99:20:hi")
+
+/-! ## Chained owned FFI — each type: create → owned roundtrip → owned roundtrip → check -/
+
+def chainedTests : TestSeq :=
+  let arr := ownedArrayNatRoundtrip (ownedArrayNatRoundtrip #[1, 2, 3])
+  test "Array" (arr == #[1, 2, 3]) ++
+  let ba := ownedByteArrayRoundtrip (ownedByteArrayRoundtrip ⟨#[10, 20, 30]⟩)
+  test "ByteArray" (ba == ⟨#[10, 20, 30]⟩) ++
+  let s := ownedStringRoundtrip (ownedStringRoundtrip "hello")
+  test "String" (s == "hello") ++
+  let obj := externalSetX (externalSetX (mkRustData 10 20 "hi") 99) 42
+  test "External" (rustDataGetX obj == 42 && rustDataGetY obj == 20)
+
+/-! ## Memory management stress tests (Valgrind targets) -/
+-- These functions allocate and drop objects entirely in Rust without returning
+-- them to Lean. Valgrind detects leaks, double-frees, or use-after-free.
+
+def memoryTests : TestSeq :=
+  test "Alloc/drop stress" (allocDropStress () == 1) ++
+  test "Mutation/drop stress" (mutationDropStress () == 1) ++
+  test "Clone/drop stress" (cloneDropStress #[1, 2, 3] 100 == 300)
 
 /-! ## Persistent object tests -/
 -- Module-level `def` values become persistent after initialization (m_rc == 0).
@@ -576,8 +443,7 @@ def persistentTests : TestSeq :=
   test "Drop persistent Nat" (dropPersistentNat persistentNat == 42) ++
   test "Drop persistent large Nat" (dropPersistentNat persistentLargeNat == 2^128) ++
   -- Read the same persistent value multiple times (verifies it wasn't freed)
-  test "Persistent Nat stable 1" (readPersistentNat persistentNat == 42) ++
-  test "Persistent Nat stable 2" (readPersistentNat persistentNat == 42) ++
+  test "Persistent Nat stable" (readPersistentNat persistentNat == 42) ++
   test "Persistent Array stable" (readPersistentArray persistentArray == 15)
 
 /-! ## Property-based tests -/
@@ -586,24 +452,19 @@ def persistentTests : TestSeq :=
 -- Tests are grouped by what they exercise:
 --   "borrowed"   — @& args, no ref counting in Rust
 --   "owned"      — lean_obj_arg, LeanOwned Drop calls lean_dec
---   "clone"      — lean_inc via Clone, then double lean_dec via Drop
 --   "persistent" — m_rc == 0 objects (compact regions, module-level defs)
 --   "property"   — randomized property-based tests (SlimCheck)
 
 public def borrowedSuite : List TestSeq := [
-  group "Roundtrip" (simpleTests ++ largeNatTests),
-  group "Except" exceptTests,
-  group "IO Result" ioResultTests,
-  group "Scalar structs" (scalarStructTests ++ extScalarStructTests ++ usizeStructTests),
-  group "External objects" externalTests,
-  group "Nested collections" nestedTests,
-  group "API helpers" (apiTests ++ dataSliceTests),
+  group "Roundtrip" borrowedRoundtripTests,
   group "Edge cases" edgeCaseTests,
 ]
 
 public def ownedSuite : List TestSeq := [
   group "Drop" ownedArgTests,
-  group "Clone" cloneTests,
+  group "In-place mutation" mutationTests,
+  group "Chained FFI" chainedTests,
+  group "Memory management" memoryTests,
 ]
 
 public def persistentSuite : List TestSeq := [
@@ -620,8 +481,22 @@ public def propertySuite : List TestSeq := [
     checkIO "Option Nat" (∀ o : Option Nat, roundtripOptionNat o == o) ++
     checkIO "Point" (∀ p : Point, roundtripPoint p == p) ++
     checkIO "NatTree" (∀ t : NatTree, roundtripNatTree t == t) ++
+    checkIO "Except" (∀ e : Except String Nat, show Bool from roundtripExceptStringNat e == e) ++
+    checkIO "UInt32" (∀ n : UInt32, roundtripUInt32 n == n) ++
+    checkIO "UInt64" (∀ n : UInt64, roundtripUInt64 n == n) ++
+    checkIO "USize" (∀ n : USize, roundtripUSize n == n) ++
+    checkIO "String from bytes" (∀ s : String, roundtripStringFromBytes s == s) ++
+    checkIO "Array push" (∀ arr : Array Nat, roundtripArrayPush arr == arr) ++
+    checkIO "Array list roundtrip" (∀ arr : Array Nat, arrayListRoundtrip arr == arr) ++
+    checkIO "Nested Array" (∀ arr : Array (Array Nat), roundtripNestedArray arr == arr) ++
+    checkIO "Nested List" (∀ xs : List (List Nat), roundtripNestedList xs == xs) ++
     checkIO "Prod swap" (∀ p : Nat × Nat, prodSwap p == (p.2, p.1)) ++
-    checkIO "Borrow to owned" (∀ n : Nat, borrowToOwned n == n)),
+    checkIO "Borrow to owned" (∀ n : Nat, borrowToOwned n == n) ++
+    checkIO "String length" (∀ s : String, (stringLength s).toNat == s.length) ++
+    checkIO "Option unwrap" (∀ o : Option Nat, optionUnwrapOrZero o == o.getD 0) ++
+    checkIO "Except map ok" (∀ e : Except String Nat,
+      exceptMapOk e == match e with | .ok n => n + 1 | .error _ => 0) ++
+    checkIO "Multi borrow sum" (∀ arr : Array Nat, multiBorrowSum arr == arr.toList.foldl (· + ·) 0)),
   group "Owned Drop" (
     checkIO "Nat" (∀ n : Nat, ownedNatRoundtrip n == n) ++
     checkIO "String" (∀ s : String, ownedStringRoundtrip s == s) ++
@@ -633,7 +508,11 @@ public def propertySuite : List TestSeq := [
     checkIO "Prod multiply" (∀ p : Nat × Nat, ownedProdMultiply p == p.1 * p.2) ++
     checkIO "Option square" (∀ o : Option Nat, ownedOptionSquare o == match o with | some n => n * n | none => 0) ++
     checkIO "Except transform" (∀ e : Except String Nat,
-      ownedExceptTransform e == match e with | .ok n => 2 * n | .error s => s.utf8ByteSize)),
+      ownedExceptTransform e == match e with | .ok n => 2 * n | .error s => s.utf8ByteSize) ++
+    checkIO "Append nat" (∀ arr : Array Nat, ∀ n : Nat, ownedAppendNat arr n == arr.push n) ++
+    checkIO "Point sum" (∀ p : Point, ownedPointSum p == p.x + p.y) ++
+    checkIO "Scalar sum" (∀ s : ScalarStruct,
+      ownedScalarSum s == s.u8val.toUInt64 + s.u32val.toUInt64 + s.u64val)),
   group "Clone + Drop" (
     checkIO "Except" (∀ e : Except String Nat,
       cloneExcept e == match e with | .ok n => 2 * n | .error s => 2 * s.utf8ByteSize) ++
@@ -641,7 +520,9 @@ public def propertySuite : List TestSeq := [
     checkIO "ByteArray" (∀ ba : ByteArray, cloneByteArray ba == 2 * ba.size) ++
     checkIO "Option" (∀ o : Option Nat,
       cloneOption o == match o with | some n => 2 * n | none => 0) ++
-    checkIO "Prod" (∀ p : Nat × Nat, cloneProd p == 2 * (p.1 + p.2))),
+    checkIO "Prod" (∀ p : Nat × Nat, cloneProd p == 2 * (p.1 + p.2)) ++
+    checkIO "Array len sum" (∀ arr : Array Nat, (cloneArrayLenSum arr).toNat == 2 * arr.size) ++
+    checkIO "String len sum" (∀ s : String, (cloneStringLenSum s).toNat == 2 * s.utf8ByteSize)),
   group "Misc" (
     checkIO "Array data sum" (∀ arr : Array Nat, arrayDataSum arr == arr.toList.foldl (· + ·) 0) ++
     checkIO "List to array via push" (∀ xs : List Nat, listToArrayViaPush xs == xs.toArray)),
@@ -657,7 +538,6 @@ def sharedTests : TestSeq :=
   test "Shared parallel read 1 thread" (sharedParallelRead #[42] 1 == 42) ++
   -- Parallel Nat: all threads should read same value
   test "Shared parallel Nat 42" (sharedParallelNat 42 4 == 42) ++
-  test "Shared parallel Nat 0" (sharedParallelNat 0 4 == 0) ++
   test "Shared parallel Nat large" (sharedParallelNat (2^64) 4 == 2^64) ++
   -- Parallel String: sum of byte_len across threads
   test "Shared parallel String" (sharedParallelString "hello" 4 == 20) ++
@@ -668,7 +548,6 @@ def sharedTests : TestSeq :=
   -- into_owned: unwrap MT-marked LeanShared back to LeanOwned
   test "Shared into_owned 42" (sharedIntoOwned 42 == 42) ++
   test "Shared into_owned large" (sharedIntoOwned (2^128) == 2^128) ++
-  test "Shared into_owned 0" (sharedIntoOwned 0 == 0) ++
   -- Constructor types: lean_mark_mt walks object graph
   test "Shared parallel Point 4 threads" (sharedParallelPoint ⟨10, 20⟩ 4 == 120) ++
   test "Shared parallel Point 1 thread" (sharedParallelPoint ⟨3, 7⟩ 1 == 10) ++

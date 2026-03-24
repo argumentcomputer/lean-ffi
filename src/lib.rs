@@ -41,6 +41,13 @@ pub fn safe_cstring(s: &str) -> CString {
     })
 }
 
+/// Signal activity to Lean's task system. Call periodically in long-running
+/// FFI functions to prevent Lean from treating them as stuck.
+#[inline]
+pub fn inc_heartbeat() {
+    unsafe { include::lean_inc_heartbeat() }
+}
+
 /// No-op foreach callback for external classes that hold no Lean references.
 ///
 /// # Safety
