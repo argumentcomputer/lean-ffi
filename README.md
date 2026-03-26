@@ -1,26 +1,22 @@
 # lean-ffi
 
-Rust bindings to the `lean.h` Lean C FFI, generated with
+A Rust library that wraps low-level bindings to the
+[`lean.h`](https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h)
+Lean C library with a high-level Rust API for safe and ergonomic FFI from Lean
+to Rust. This allows the user to focus on the actual Rust logic rather than
+manually manipulating pointers and keeping track of Lean reference counts.
+
+The Rust bindings are auto-generated with
 [`rust-bindgen`](https://github.com/rust-lang/rust-bindgen). Bindgen runs in
-`build.rs` and generates unsafe Rust functions that link to Lean's `lean.h` C
-library. This module can be found at
-`target/release/build/lean-ffi-<hash>/out/lean.rs` after running
-`cargo build --release`.
+`build.rs` and generates unsafe Rust functions that link to `lean.h`. This
+module can be found at `target/release/build/lean-ffi-<hash>/out/lean.rs` after
+running `cargo build --release`.
 
-These bindings are then wrapped in a typed Rust API that models Lean's reference
-counting system for owned (`lean_obj_arg`) and borrowed (`b_lean_obj_arg`)
-references.
-
-## Ownership Model
-
-### Background: Lean C API conventions
+## Background: Lean Ownership Model
 
 In Lean's C API, a **reference** is a `lean_object*` pointer to the header of a
-heap-allocated object. Note that a `lean_object*` can also refer to a tagged
-scalar value encoded as a pointer-sized data type, where the low bit (tag) of
-the pointer is set to 1. In that case it would not be called a reference.
-
-References in Lean can either be **owned** or **borrowed**.
+heap-allocated object. References in Lean can either be **owned** or
+**borrowed**.
 
 An **owned reference**, signified by `lean_obj_arg` in C, uses reference
 counting via the `int m_rc` field of the `lean_object` to determine when to free
@@ -36,7 +32,11 @@ be kept alive as long as its parent. This enables the borrowed reference to
 dispense with reference counting altogether as it will get dropped when going
 out of scope.
 
-### Rust API
+> [!NOTE] A `lean_object*` can also refer to a tagged scalar value encoded as a
+> pointer-sized data type, where the low bit (tag) of the pointer is set to 1.
+> In that case it would not be called a reference.
+
+## `lean-ffi` Rust API
 
 In order to handle Lean reference counting gracefully in Rust, we use the
 following types:
@@ -50,18 +50,18 @@ following types:
   - Passing or assigning a `LeanOwned` **moves** it (transferring the
     `lean_dec`); use `.clone()` to create a second owned reference via
     `lean_inc`.
-  - [`into_raw`] consumes the wrapper **without** calling `lean_dec`, for
-    passing ownership to Lean C API functions that take `lean_obj_arg` (which
-    will `lean_dec` internally). Not needed for returning values from
-    `extern "C"` functions — returning `LeanOwned` directly works because Rust
-    does not call `Drop` on return values.
+  - `into_raw` consumes the wrapper **without** calling `lean_dec`, for passing
+    ownership to Lean C API functions that take `lean_obj_arg` (which will
+    `lean_dec` internally). Not needed for returning values from `extern "C"`
+    functions — returning `LeanOwned` directly works because Rust does not call
+    `Drop` on return values.
   - Tagged scalar values (bit 0 set — small `Nat`, `Bool`, etc.) and persistent
     objects (`m_rc == 0`) skip refcount operations entirely.
 
 - **`LeanBorrowed<'a>`** — A borrowed reference. Corresponds to `b_lean_obj_arg`
   in the C FFI. Used when Lean declares a parameter with `@&`.
-  - The `Copy` and `Clone` implementations perform a trivial bitwise copy. Neither
-    `Clone` nor `Drop` modify the reference count.
+  - The `Copy` and `Clone` implementations perform a trivial bitwise copy.
+    Neither `Clone` nor `Drop` modify the reference count.
   - The lifetime `'a` ties the borrowed reference to the source reference's
     scope, preventing use-after-free.
   - Call `.to_owned_ref()` to promote to `LeanOwned` (calls `lean_inc`).
@@ -82,7 +82,7 @@ following types:
 All reference types are safe for persistent objects and compact memory regions
 (`m_rc == 0`) — `lean_inc_ref` and `lean_dec_ref` are no-ops when `m_rc == 0`.
 
-## Domain Types
+### Domain Types
 
 Domain types wrap the ownership types to provide type safety at FFI boundaries.
 Built-in domain types include `LeanArray<R>`, `LeanString<R>`, `LeanCtor<R>`,
@@ -90,13 +90,13 @@ Built-in domain types include `LeanArray<R>`, `LeanString<R>`, `LeanCtor<R>`,
 `LeanProd<R>`, `LeanNat<R>`, `LeanBool<R>`, `LeanByteArray<R>`, and
 `LeanExternal<T, R>`.
 
-### Naming convention
+#### Naming convention
 
 Domain types are prefixed with `Lean` to distinguish them from Lean-side type
 names and to match the built-in types. For example, a Lean `Point` structure
 becomes `LeanPoint` in Rust.
 
-### Defining custom domain types
+#### Defining custom domain types
 
 Use the `lean_domain_type!` macro to define newtypes for your Lean types:
 
@@ -308,7 +308,7 @@ More examples can be found in `src/test_ffi.rs` (Rust FFI implementations) and
 scalar field layouts, external objects, in-place mutation, and ownership
 patterns.
 
-## In-Place Mutation
+### In-Place Mutation
 
 Lean's runtime supports in-place mutation when an object is **exclusively
 owned** (`m_rc == 1`, single-threaded mode). When shared, the object is copied
@@ -317,7 +317,7 @@ first. `LeanRef::is_exclusive()` exposes this check.
 These methods consume `self` and return a (possibly new) object, mutating in
 place when exclusive or copying first when shared:
 
-### `LeanArray`
+#### `LeanArray`
 
 | Method               | C equivalent          | Description                                                        |
 | -------------------- | --------------------- | ------------------------------------------------------------------ |
@@ -327,7 +327,7 @@ place when exclusive or copying first when shared:
 | `pop(self)`          | `lean_array_pop`      | Remove the last element                                            |
 | `uswap(self, i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
 
-### `LeanByteArray`
+#### `LeanByteArray`
 
 | Method                  | C equivalent                | Description                                                       |
 | ----------------------- | --------------------------- | ----------------------------------------------------------------- |
@@ -336,7 +336,7 @@ place when exclusive or copying first when shared:
 | `push(self, val)`       | `lean_byte_array_push`      | Append a byte                                                     |
 | `copy(self)`            | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
 
-### `LeanString`
+#### `LeanString`
 
 | Method                | C equivalent         | Description                           |
 | --------------------- | -------------------- | ------------------------------------- |
