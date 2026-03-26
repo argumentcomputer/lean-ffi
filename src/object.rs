@@ -37,7 +37,7 @@ use tags::*;
 const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 
 // =============================================================================
-// LeanRef trait — shared interface for owned and borrowed pointers
+// LeanRef trait — shared interface for owned and borrowed references
 // =============================================================================
 //
 // lean.h base object header (8 bytes):
@@ -86,17 +86,6 @@ pub trait LeanRef: Clone {
         !self.is_scalar() && unsafe { include::lean_is_persistent(self.as_raw()) }
     }
 
-    /// Produce an owned copy by incrementing the reference count.
-    /// Safe for persistent objects (m_rc == 0) — `lean_inc_ref` is a no-op when `m_rc == 0`.
-    #[inline]
-    fn to_owned_ref(&self) -> LeanOwned {
-        let ptr = self.as_raw();
-        if ptr as usize & 1 != 1 {
-            unsafe { include::lean_inc_ref(ptr) };
-        }
-        LeanOwned(ptr)
-    }
-
     /// Unbox a tagged scalar pointer into a `usize`.
     #[inline]
     fn unbox_usize(&self) -> usize {
@@ -141,16 +130,31 @@ pub trait LeanRef: Clone {
 }
 
 // =============================================================================
-// LeanOwned — Owned Lean object pointer (RAII)
+// LeanOwned — Owned reference to a Lean object (RAII)
 // =============================================================================
 
-/// Owned reference to a Lean object.
+/// An owned reference to a Lean object, in the sense of
+/// [Counting Immutable Beans](https://arxiv.org/abs/1908.05647): the holder
+/// of an owned reference must call `lean_dec` exactly once.
 ///
-/// - `Drop` calls `lean_dec` (with scalar check).
-/// - `Clone` calls `lean_inc`.
-/// - **Not `Copy`** — ownership is linear.
+/// In the Lean C API, owned and borrowed references are both raw `lean_object*`
+/// pointers — the distinction is purely a calling convention:
+/// an owned reference (`lean_obj_arg`) means the recipient must call `lean_dec`
+/// exactly once, while a borrowed reference (`b_lean_obj_arg`) means they must
+/// not. Calling `lean_inc` does not create a new pointer; it increments `m_rc`
+/// on the existing one. The reference count tracks how many `lean_dec` calls
+/// remain before the object is freed.
 ///
-/// Corresponds to `lean_obj_arg` (received) and `lean_obj_res` (returned via repr(transparent)).
+/// `LeanOwned` wraps a raw `lean_object*` with RAII semantics. **Every
+/// `LeanOwned` value will call `lean_dec` exactly once when dropped.** `Clone`
+/// calls `lean_inc` to balance the additional `lean_dec` from the new value's
+/// `Drop`, and returns a second `LeanOwned` to the same object.
+///
+/// Not `Copy` — passing or assigning a `LeanOwned` moves it (transferring the
+/// `lean_dec`); use `.clone()` to create a second owned reference via `lean_inc`.
+///
+/// Corresponds to `lean_obj_arg` (received) and `lean_obj_res` (returned via
+/// repr(transparent)).
 #[repr(transparent)]
 pub struct LeanOwned(*mut include::lean_object);
 
@@ -202,7 +206,14 @@ impl LeanOwned {
 
     /// Consume this wrapper without calling `lean_dec`.
     ///
-    /// Use when transferring ownership back to Lean (returning `lean_obj_res`).
+    /// Use when passing ownership to a Lean C API function that takes
+    /// `lean_obj_arg` (which will `lean_dec` internally). Without this,
+    /// both the C function and Rust's `Drop` would `lean_dec`, causing a
+    /// double-free.
+    ///
+    /// Not needed for returning values from `extern "C"` FFI functions —
+    /// returning a `LeanOwned` directly works because Rust does not call
+    /// `Drop` on return values.
     #[inline]
     pub fn into_raw(self) -> *mut include::lean_object {
         let ptr = self.0;
@@ -299,6 +310,20 @@ impl<'a> LeanBorrowed<'a> {
     #[inline]
     pub unsafe fn from_raw(ptr: *mut include::lean_object) -> Self {
         Self(ptr, PhantomData)
+    }
+
+    /// Promote this borrowed reference to an owned reference.
+    ///
+    /// Calls `lean_inc_ref` to account for the `lean_dec` that the returned
+    /// [`LeanOwned`]'s `Drop` will perform.
+    /// No-op for tagged scalars (bit 0 set) and persistent objects (`m_rc == 0`).
+    #[inline]
+    pub fn to_owned_ref(&self) -> LeanOwned {
+        let ptr = self.as_raw();
+        if ptr as usize & 1 != 1 {
+            unsafe { include::lean_inc_ref(ptr) };
+        }
+        LeanOwned(ptr)
     }
 }
 
@@ -1749,7 +1774,7 @@ impl From<f32> for LeanOwned {
 // Convenience: as_ctor / as_string / as_array / as_list / as_byte_array
 // =============================================================================
 
-/// Helper methods for interpreting a reference as a specific domain type (borrowed view).
+/// Helper methods for interpreting a borrowed reference as a specific domain type.
 impl<'a> LeanBorrowed<'a> {
     /// Interpret as a constructor object.
     #[inline]
@@ -1788,10 +1813,10 @@ impl<'a> LeanBorrowed<'a> {
 }
 
 // =============================================================================
-// LeanShared — Thread-safe owned Lean object
+// LeanShared — Thread-safe owned reference to a Lean object
 // =============================================================================
 
-/// Thread-safe owned Lean object with atomic refcounting.
+/// Thread-safe owned reference to a Lean object, with atomic refcounting.
 ///
 /// Lean objects track refcounts in `m_rc`:
 /// - `m_rc > 0` → single-threaded (ST): non-atomic inc/dec
@@ -1823,7 +1848,7 @@ unsafe impl Send for LeanShared {}
 unsafe impl Sync for LeanShared {}
 
 impl LeanShared {
-    /// Mark an owned object's entire reachable graph as MT and take ownership.
+    /// Mark the object's entire reachable graph as MT and wrap as a shared reference.
     ///
     /// Persistent objects (`m_rc == 0`) and scalars are unaffected.
     /// After this call, all refcount operations on the object graph use
