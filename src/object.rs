@@ -1,11 +1,11 @@
-//! Ownership-aware wrappers for Lean FFI object pointers.
+//! Ownership-aware wrappers for Lean FFI references.
 //!
-//! The two core pointer types are:
+//! The two core reference types are:
 //! - [`LeanOwned`]: Owned reference. `Drop` calls `lean_dec`, `Clone` calls `lean_inc`. Not `Copy`.
 //! - [`LeanBorrowed`]: Borrowed reference. `Copy`, no `Drop`, lifetime-bounded.
 //!
 //! Domain types like [`LeanArray`], [`LeanCtor`], etc. are generic over `R: LeanRef`,
-//! inheriting ownership semantics from the inner pointer type.
+//! inheriting ownership semantics from the inner reference type.
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -272,7 +272,7 @@ impl LeanOwned {
 }
 
 // =============================================================================
-// LeanBorrowed — Borrowed Lean object pointer
+// LeanBorrowed — Borrowed reference to a Lean object
 // =============================================================================
 
 /// Borrowed reference to a Lean object.
@@ -1188,7 +1188,7 @@ impl<T> LeanExternal<T, LeanOwned> {
 }
 
 impl<'a, T> LeanExternal<T, LeanBorrowed<'a>> {
-    /// Wrap a raw pointer as a borrowed external object.
+    /// Wrap a raw pointer as a borrowed reference to an external object.
     ///
     /// # Safety
     /// The pointer must be a valid Lean external object whose data pointer
@@ -1215,6 +1215,11 @@ impl<T> From<LeanExternal<T, LeanOwned>> for LeanOwned {
 // =============================================================================
 
 /// A registered Lean external class (wraps `lean_external_class*`).
+///
+/// A "class" is a pair of function pointers (finalizer + foreach) shared by
+/// all external objects of the same Rust type. Created once via
+/// [`register`](Self::register) or [`register_with_drop`](Self::register_with_drop)
+/// and stored in a `static`.
 pub struct ExternalClass(*mut include::lean_external_class);
 
 // Safety: the class pointer is initialized once and read-only thereafter.
@@ -1226,7 +1231,10 @@ impl ExternalClass {
     ///
     /// # Safety
     /// The `finalizer` callback must correctly free the external data, and
-    /// `foreach` must correctly visit any Lean object references held by the data.
+    /// `foreach` must visit any `lean_object*` pointers held by the data so that
+    /// `lean_mark_persistent` and `lean_mark_mt` can traverse the full object
+    /// graph. Only called during persistent/MT marking, not during normal
+    /// deallocation.
     pub unsafe fn register(
         finalizer: include::lean_external_finalize_proc,
         foreach: include::lean_external_foreach_proc,
@@ -1235,7 +1243,8 @@ impl ExternalClass {
     }
 
     /// Register a new external class that uses `Drop` to finalize `T`
-    /// and has no Lean object references to visit.
+    /// and provides a no-op foreach (suitable when `T` holds no `lean_object*`
+    /// pointers).
     pub fn register_with_drop<T>() -> Self {
         unsafe extern "C" fn drop_finalizer<T>(ptr: *mut std::ffi::c_void) {
             if !ptr.is_null() {

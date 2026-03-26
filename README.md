@@ -48,13 +48,13 @@ following types:
     reference to the same object. `Copy` is not implemented.
   - The `Drop` implementation calls `lean_dec` automatically on scope exit.
   - Passing or assigning a `LeanOwned` **moves** it (transferring the
-    `lean_dec`); use `.clone()` to create a second owned reference via
+    `lean_dec`); use `self.clone()` to create a second owned reference via
     `lean_inc`.
-  - `into_raw` consumes the wrapper **without** calling `lean_dec`, for passing
-    ownership to Lean C API functions that take `lean_obj_arg` (which will
-    `lean_dec` internally). Not needed for returning values from `extern "C"`
-    functions — returning `LeanOwned` directly works because Rust does not call
-    `Drop` on return values.
+  - `self.into_raw()` consumes the wrapper **without** calling `lean_dec`, for
+    passing ownership to Lean C API functions that take `lean_obj_arg` (which
+    will `lean_dec` internally). Not needed for returning values from
+    `extern "C"` functions — returning `LeanOwned` directly works because Rust
+    does not call `Drop` on return values.
   - Tagged scalar values (bit 0 set — small `Nat`, `Bool`, etc.) and persistent
     objects (`m_rc == 0`) skip refcount operations entirely.
 
@@ -64,7 +64,7 @@ following types:
     Neither `Clone` nor `Drop` modify the reference count.
   - The lifetime `'a` ties the borrowed reference to the source reference's
     scope, preventing use-after-free.
-  - Call `.to_owned_ref()` to promote to `LeanOwned` (calls `lean_inc`).
+  - Call `self.to_owned_ref()` to promote to `LeanOwned` (calls `lean_inc`).
   - Note: The `b_lean_obj_res` type is used when returning a borrowed reference
     in C, but returning it and `LeanBorrowed` are only used internally as Lean
     expects owned references at the FFI boundary.
@@ -76,11 +76,12 @@ following types:
   `into_owned()` to unwrap back to `LeanOwned`.
 
 - **`LeanRef`** — Trait implemented by `LeanOwned`, `LeanBorrowed`, and
-  `LeanShared`, providing shared read-only operations like `as_raw()`,
-  `is_scalar()`, `tag()`, and unboxing methods.
+  `LeanShared`, providing shared read-only operations like `self.as_raw()`,
+  `self.is_scalar()`, `self.tag()`, and unboxing methods.
 
 All reference types are safe for persistent objects and compact memory regions
-(`m_rc == 0`) — `lean_inc_ref` and `lean_dec_ref` are no-ops when `m_rc == 0`.
+(`m_rc == 0`) — `lean_inc_ref()` and `lean_dec_ref()` are no-ops when
+`m_rc == 0`.
 
 ### Domain Types
 
@@ -110,9 +111,9 @@ lean_ffi::lean_domain_type! {
 ```
 
 This generates a `#[repr(transparent)]` wrapper with `Clone`, `Copy` for
-`LeanBorrowed`, `inner()`, `as_raw()`, `into_raw()`, and `From` impls. You can
-then add accessor methods — readers are generic over `R: LeanRef` (work on both
-owned and borrowed), constructors return `LeanOwned`:
+`LeanBorrowed`, `self.inner()`, `self.as_raw()`, `self.into_raw()`, and `From`
+impls. You can then add accessor methods — readers are generic over `R: LeanRef`
+(work on both owned and borrowed), constructors return `LeanOwned`:
 
 ```rust
 impl<R: LeanRef> LeanPutResponse<R> {
@@ -206,13 +207,13 @@ sees an opaque type; Rust controls allocation, access, mutation, and cleanup.
 
 **Register** an external class exactly once, using `OnceLock` or `LazyLock`.
 
-`ExternalClass::register` calls `lean_register_external_class`, which allocates
-a class descriptor with two function pointers: a **finalizer** called when the
-object's refcount reaches zero to free the Rust data, and a **foreach** callback
-for Lean to traverse any embedded `lean_object*` pointers (usually a no-op for
-pure Rust data).
+`ExternalClass::register()` calls `lean_register_external_class`, which
+allocates a class descriptor with two function pointers: a **finalizer** called
+when the object's refcount reaches zero to free the Rust data, and a **foreach**
+callback that `lean_mark_persistent` and `lean_mark_mt` use to traverse any
+embedded `lean_object*` pointers (usually a no-op for pure Rust data).
 
-`register_with_drop::<T>()` generates a finalizer that calls
+`ExternalClass::register_with_drop::<T>()` generates a finalizer that calls
 `drop(Box::from_raw(ptr.cast::<T>()))` and a no-op foreach — sufficient for any
 Rust type that doesn't hold Lean objects.
 
@@ -230,7 +231,7 @@ static HASHER_CLASS: LazyLock<ExternalClass> =
     LazyLock::new(ExternalClass::register_with_drop::<Hasher>);
 ```
 
-**Create** — `LeanExternal::alloc` boxes the value and returns an owned
+**Create** — `LeanExternal::alloc()` boxes the value and returns an owned
 reference to the external object:
 
 ```rust
@@ -241,8 +242,8 @@ extern "C" fn rs_hasher_new(_unit: LeanOwned) -> LeanExternal<Hasher, LeanOwned>
 }
 ```
 
-**Read** — `.get()` borrows the stored `&T`. Works on both owned and borrowed
-references:
+**Read** — `self.get()` borrows the stored `&T`. Works on both owned and
+borrowed references:
 
 ```rust
 // Lean: @[extern "rs_hasher_bytes"] opaque Hasher.bytes : @& Hasher → ByteArray
@@ -254,9 +255,9 @@ extern "C" fn rs_hasher_bytes(
 }
 ```
 
-**Update** — `.get_mut()` returns `Option<&mut T>`, which is `Some` when the
+**Update** — `self.get_mut()` returns `Option<&mut T>`, which is `Some` when the
 object is exclusively owned (`m_rc == 1`). This enables in-place mutation
-without allocating a new external object. When shared `.get_mut()` returns
+without allocating a new external object. When shared `self.get_mut()` returns
 `None` and instead clones into a new object on write.
 
 ```rust
@@ -319,29 +320,29 @@ place when exclusive or copying first when shared:
 
 #### `LeanArray`
 
-| Method               | C equivalent          | Description                                                        |
-| -------------------- | --------------------- | ------------------------------------------------------------------ |
-| `set(&self, i, val)` | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
-| `uset(self, i, val)` | `lean_array_uset`     | Set element (copies if shared)                                     |
-| `push(self, val)`    | `lean_array_push`     | Append an element                                                  |
-| `pop(self)`          | `lean_array_pop`      | Remove the last element                                            |
-| `uswap(self, i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
+| Method                    | C equivalent          | Description                                                        |
+| ------------------------- | --------------------- | ------------------------------------------------------------------ |
+| `self.set(&self, i, val)` | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(self, i, val)` | `lean_array_uset`     | Set element (copies if shared)                                     |
+| `self.push(self, val)`    | `lean_array_push`     | Append an element                                                  |
+| `self.pop(self)`          | `lean_array_pop`      | Remove the last element                                            |
+| `self.uswap(self, i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
 
 #### `LeanByteArray`
 
-| Method                  | C equivalent                | Description                                                       |
-| ----------------------- | --------------------------- | ----------------------------------------------------------------- |
-| `set_data(&self, data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
-| `uset(self, i, val)`    | `lean_byte_array_uset`      | Set byte (copies if shared)                                       |
-| `push(self, val)`       | `lean_byte_array_push`      | Append a byte                                                     |
-| `copy(self)`            | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
+| Method                       | C equivalent                | Description                                                       |
+| ---------------------------- | --------------------------- | ----------------------------------------------------------------- |
+| `self.set_data(&self, data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(self, i, val)`    | `lean_byte_array_uset`      | Set byte (copies if shared)                                       |
+| `self.push(self, val)`       | `lean_byte_array_push`      | Append a byte                                                     |
+| `self.copy(self)`            | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
 
 #### `LeanString`
 
-| Method                | C equivalent         | Description                           |
-| --------------------- | -------------------- | ------------------------------------- |
-| `push(self, c)`       | `lean_string_push`   | Append a UTF-32 character             |
-| `append(self, other)` | `lean_string_append` | Concatenate another string (borrowed) |
+| Method                     | C equivalent         | Description                           |
+| -------------------------- | -------------------- | ------------------------------------- |
+| `self.push(self, c)`       | `lean_string_push`   | Append a UTF-32 character             |
+| `self.append(self, other)` | `lean_string_append` | Concatenate another string (borrowed) |
 
 `LeanExternal<T>` also supports in-place mutation via `get_mut()` — see the
 **Update** section under [External objects](#external-objects-leanexternalt-r).
@@ -375,9 +376,9 @@ across the FFI boundary, not as `lean_box(tag)`. Use
 `lean_string_size` instead, which returns `m_size` — the number of data bytes
 including the NUL terminator. `LeanString` wraps these correctly:
 
-- `byte_len()` — data bytes excluding NUL (`m_size - 1`)
-- `length()` — UTF-8 character count (`m_length`)
-- `as_str()` — view as `&str`
+- `self.byte_len()` — data bytes excluding NUL (`m_size - 1`)
+- `self.length()` — UTF-8 character count (`m_length`)
+- `self.as_str()` — view as `&str`
 
 ## References
 
