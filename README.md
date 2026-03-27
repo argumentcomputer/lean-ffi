@@ -1,52 +1,106 @@
 # lean-ffi
 
-Rust bindings to the `lean.h` Lean C FFI, generated with [`rust-bindgen`](https://github.com/rust-lang/rust-bindgen).
-Bindgen runs in `build.rs` and generates unsafe Rust functions that link to
-Lean's `lean.h` C library. This external module can then be found at
-`target/release/lean-ffi-<hash>/out/lean.rs`.
+A Rust library that wraps low-level bindings to the
+[`lean.h`](https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h)
+Lean C library with a high-level API for safe and ergonomic FFI from Lean to
+Rust. This allows the user to focus on the actual Rust logic rather than
+manually manipulating pointers and keeping track of Lean reference counts.
 
-These bindings are then wrapped in a typed Rust API that models Lean's
-ownership conventions (`lean_obj_arg` vs `b_lean_obj_arg`) using Rust's
-type system.
+The Rust bindings are auto-generated with
+[`rust-bindgen`](https://github.com/rust-lang/rust-bindgen). Bindgen runs in
+`build.rs` and generates unsafe Rust functions that link to `lean.h`. This
+module can be found at `target/release/build/lean-ffi-<hash>/out/lean.rs` after
+running `cargo build --release`.
 
-## Ownership Model
+## Background: Lean Ownership Model
 
-The core types are:
+In Lean's C API, a **reference** is a `lean_object*` pointer to the header of a
+heap-allocated object. References in Lean can either be **owned** or
+**borrowed**.
 
-- **`LeanOwned`** — An owned reference to a Lean object. `Drop` calls `lean_dec`,
-  `Clone` calls `lean_inc`. Not `Copy`. Corresponds to `lean_obj_arg` (input) and
-  `lean_obj_res` (output) in the C FFI.
+An **owned reference** is a `lean_object*` that participates in reference
+counting via the `int m_rc` field. Before a new reference to the object is
+created, the Lean compiler inserts a `lean_inc` call to increment the ref count.
+When the reference goes out of scope, the Lean compiler inserts a `lean_dec`
+call to decrement the ref count. When `m_rc` reaches 0, the Lean runtime frees
+the object. In C the conventional type alias for an owned reference is
+`lean_obj_arg` for function parameters and `lean_obj_res` for return values.
 
-- **`LeanBorrowed<'a>`** — A borrowed reference. `Copy`, no `Drop`, lifetime-bounded.
-  Corresponds to `b_lean_obj_arg` in the C FFI. Used when Lean declares a parameter
-  with `@&`.
+A **borrowed reference**, signified by `@&` in a Lean function parameter, is a
+`lean_object*` for which the compiler does not emit `lean_inc` or `lean_dec`
+calls, relying on a surrounding owned reference to keep the object alive. This
+is more efficient for cases when the object is known to outlive the borrowed
+reference, e.g. reading a constructor field. In C the conventional type alias
+for a borrowed reference is `b_lean_obj_arg` for function parameters and
+`b_lean_obj_res` for return values.
 
-- **`LeanShared`** — A thread-safe owned reference. Wraps `LeanOwned` after calling
-  `lean_mark_mt` on the object graph, which transitions all reachable objects to
-  multi-threaded mode with atomic refcounting. `Send + Sync`. Use `borrow()` to get
-  a `LeanBorrowed<'_>` for reading, `into_owned()` to unwrap back to `LeanOwned`.
+> [!NOTE]
+> A `lean_object*` can also refer to a tagged scalar value encoded as a
+> pointer-sized data type, where the low bit (tag) of the pointer is set to 1.
+> In that case it would not be called a reference.
 
-- **`LeanRef`** — Trait implemented by `LeanOwned`, `LeanBorrowed`, and `LeanShared`,
-  providing shared read-only operations like `as_raw()`, `is_scalar()`, `tag()`, and
-  unboxing methods.
+## `lean-ffi` Rust API
 
-All reference types are safe for persistent objects (`m_rc == 0`) — `lean_inc_ref` and
-`lean_dec_ref` are no-ops when `m_rc == 0`.
+In order to handle Lean reference counting gracefully in Rust, we use the
+following types:
 
-## Domain Types
+- **`LeanOwned`** - An owned reference to a Lean object with RAII semantics.
+  Corresponds to `lean_obj_arg` (input) and `lean_obj_res` (output) in the C
+  FFI.
+  - The `Clone` implementation calls `lean_inc` and returns a new `LeanOwned`
+    reference to the same object. `Copy` is not implemented.
+  - The `Drop` implementation calls `lean_dec` automatically on scope exit.
+  - Passing or assigning a `LeanOwned` **moves** it (transferring the
+    `lean_dec`); use `self.clone()` to create a second owned reference via
+    `lean_inc`.
+  - `self.into_raw()` consumes the wrapper **without** calling `lean_dec`, for
+    passing ownership to Lean C API functions that take `lean_obj_arg` (which
+    will `lean_dec` internally). Not needed for returning values from
+    `extern "C"` functions — returning `LeanOwned` directly works because Rust
+    does not call `Drop` on return values.
+  - Tagged scalar values (bit 0 set — small `Nat`, `Bool`, etc.) and persistent
+    objects (`m_rc == 0`) skip refcount operations entirely.
+
+- **`LeanBorrowed<'a>`** — A borrowed reference. Corresponds to `b_lean_obj_arg`
+  in the C FFI. Used when Lean declares a parameter with `@&`.
+  - The `Copy` and `Clone` implementations perform a trivial bitwise copy.
+    Neither `Clone` nor `Drop` modify the reference count.
+  - The lifetime `'a` ties the borrowed reference to the source reference's
+    scope, preventing use-after-free.
+  - Call `self.to_owned_ref()` to promote to `LeanOwned` (calls `lean_inc`).
+  - Note: The `b_lean_obj_res` type is used when returning a borrowed reference
+    in C, but returning it and `LeanBorrowed` are only used internally as Lean
+    expects owned references at the FFI boundary.
+
+- **`LeanShared`** — A thread-safe owned reference. Wraps `LeanOwned` after
+  calling `lean_mark_mt` on the object graph, which transitions all reachable
+  objects to multi-threaded mode with atomic refcounting. Implements
+  `Send + Sync`. Use `borrow()` to get a `LeanBorrowed<'_>` for reading,
+  `into_owned()` to unwrap back to `LeanOwned`.
+
+- **`LeanRef`** — Trait implemented by `LeanOwned`, `LeanBorrowed`, and
+  `LeanShared`, providing shared read-only operations like `self.as_raw()`,
+  `self.is_scalar()`, `self.tag()`, and unboxing methods.
+
+All reference types are safe for persistent objects and compact memory regions
+(`m_rc == 0`) — `lean_inc_ref()` and `lean_dec_ref()` are no-ops when
+`m_rc == 0`.
+
+### Domain Types
 
 Domain types wrap the ownership types to provide type safety at FFI boundaries.
 Built-in domain types include `LeanArray<R>`, `LeanString<R>`, `LeanCtor<R>`,
-`LeanList<R>`, `LeanOption<R>`, `LeanExcept<R>`, `LeanIOResult<R>`, `LeanProd<R>`,
-`LeanNat<R>`, `LeanBool<R>`, `LeanByteArray<R>`, and `LeanExternal<T, R>`.
+`LeanList<R>`, `LeanOption<R>`, `LeanExcept<R>`, `LeanIOResult<R>`,
+`LeanProd<R>`, `LeanNat<R>`, `LeanBool<R>`, `LeanByteArray<R>`, and
+`LeanExternal<T, R>`.
 
-### Naming convention
+#### Naming convention
 
-Domain types are prefixed with `Lean` to distinguish them from Lean-side type names
-and to match the built-in types. For example, a Lean `Point` structure becomes
-`LeanPoint` in Rust.
+Domain types are prefixed with `Lean` to distinguish them from Lean-side type
+names and to match the built-in types. For example, a Lean `Point` structure
+becomes `LeanPoint` in Rust.
 
-### Defining custom domain types
+#### Defining custom domain types
 
 Use the `lean_domain_type!` macro to define newtypes for your Lean types:
 
@@ -59,10 +113,10 @@ lean_ffi::lean_domain_type! {
 }
 ```
 
-This generates a `#[repr(transparent)]` wrapper with `Clone`, conditional `Copy`,
-`inner()`, `as_raw()`, `into_raw()`, and `From` impls. You can then add
-accessor methods — readers are generic over `R: LeanRef` (work on both owned
-and borrowed), constructors return `LeanOwned`:
+This generates a `#[repr(transparent)]` wrapper with `Clone`, `Copy` for
+`LeanBorrowed`, `self.inner()`, `self.as_raw()`, `self.into_raw()`, and `From`
+impls. You can then add accessor methods — readers are generic over `R: LeanRef`
+(work on both owned and borrowed), constructors return `LeanOwned`:
 
 ```rust
 impl<R: LeanRef> LeanPutResponse<R> {
@@ -84,12 +138,91 @@ impl LeanPutResponse<LeanOwned> {
 }
 ```
 
+### Inductive types and field layout
+
+Extra care must be taken when dealing with
+[inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/#run-time-inductives)
+as the runtime memory layout of constructor fields may not match the declaration
+order in Lean. Fields are reordered into three groups:
+
+1. Non-scalar fields (`lean_object*`), in declaration order
+2. `USize` fields, in declaration order
+3. Other scalar fields, in decreasing order by size, then declaration order
+   within each size
+
+This means a structure like
+
+```lean
+structure MyStruct where
+  u8val : UInt8
+  obj : Nat
+  u32val : UInt32
+  u64val : UInt64
+```
+
+would be laid out as `[obj, u64val, u32val, u8val]` at runtime. Trivial wrapper
+types (e.g. `Char` wraps `UInt32`) count as their underlying scalar type.
+
+A constructor's memory looks like:
+
+```
+[header (8B)] [object fields (8B each)] [USize fields (8B each)] [scalar data area]
+```
+
+Object fields and USize fields each occupy 8-byte slots. The scalar data area is
+a flat region of bytes containing all remaining scalar field values, packed by
+descending size. For `MyStruct` (1 object field, 0 USize fields, 13 scalar
+bytes):
+
+- `u64val` occupies bytes 0–7 of the scalar area
+- `u32val` occupies bytes 8–11
+- `u8val` occupies byte 12
+
+Use `LeanCtor` to access fields at the correct positions. Scalar getters and
+setters take `(num_slots, byte_offset)` — `num_slots` is the total number of
+8-byte slots (object fields + USize fields) preceding the scalar data area, and
+`byte_offset` is the position of the field within that area.
+
+```rust
+impl<R: LeanRef> LeanScalarStruct<R> {
+    pub fn obj(&self) -> LeanBorrowed<'_> { self.as_ctor().get(0) }
+    pub fn u64val(&self) -> u64 { self.as_ctor().get_u64(1, 0) }
+    pub fn u32val(&self) -> u32 { self.as_ctor().get_u32(1, 8) }
+    pub fn u8val(&self) -> u8  { self.as_ctor().get_u8(1, 12) }
+}
+
+impl LeanScalarStruct<LeanOwned> {
+    pub fn mk(obj: LeanNat<LeanOwned>, u64val: u64, u32val: u32, u8val: u8) -> Self {
+        let ctor = LeanCtor::alloc(0, 1, 13); // tag 0, 1 obj field, 13 scalar bytes
+        ctor.set(0, obj);                // object field 0
+        ctor.set_u64(1, 0, u64val);      // 1 slot before scalars, byte 0
+        ctor.set_u32(1, 8, u32val);      // 1 slot before scalars, byte 8
+        ctor.set_u8(1, 12, u8val);       // 1 slot before scalars, byte 12
+        Self::new(ctor.into())
+    }
+}
+```
+
 ### External objects (`LeanExternal<T, R>`)
 
 External objects let you store arbitrary Rust data inside a Lean object. Lean
 sees an opaque type; Rust controls allocation, access, mutation, and cleanup.
 
-**Register** an external class exactly once, using `OnceLock` or `LazyLock`:
+**Register** an external class exactly once, using `OnceLock` or `LazyLock`.
+
+`ExternalClass::register()` calls `lean_register_external_class`, which
+allocates a class descriptor with two function pointers: a **finalizer** called
+when the object's refcount reaches zero to free the Rust data, and a **foreach**
+callback that `lean_mark_persistent` and `lean_mark_mt` use to traverse any
+embedded `lean_object*` pointers (usually a no-op for pure Rust data).
+
+`ExternalClass::register_with_drop::<T>()` generates a finalizer that calls
+`drop(Box::from_raw(ptr.cast::<T>()))` and a no-op foreach — sufficient for any
+Rust type that doesn't hold Lean objects.
+
+Registration must happen exactly once per type. `LazyLock` (or `OnceLock`)
+ensures thread-safe one-time initialization, storing the returned
+`ExternalClass` in a `static` for reuse across all allocations:
 
 ```rust
 use std::sync::LazyLock;
@@ -97,14 +230,12 @@ use lean_ffi::object::{ExternalClass, LeanExternal, LeanOwned, LeanBorrowed};
 
 struct Hasher { state: Vec<u8> }
 
-// register_with_drop<T> generates a finalizer that calls drop(Box::from_raw(ptr))
-// and a no-op foreach (no Lean objects inside T to traverse).
 static HASHER_CLASS: LazyLock<ExternalClass> =
     LazyLock::new(ExternalClass::register_with_drop::<Hasher>);
 ```
 
-**Create** — `LeanExternal::alloc` boxes the value and returns an owned
-external object:
+**Create** — `LeanExternal::alloc()` boxes the value and returns an owned
+reference to the external object:
 
 ```rust
 // Lean: @[extern "rs_hasher_new"] opaque Hasher.new : Unit → Hasher
@@ -114,8 +245,8 @@ extern "C" fn rs_hasher_new(_unit: LeanOwned) -> LeanExternal<Hasher, LeanOwned>
 }
 ```
 
-**Read** — `.get()` borrows the stored `&T`. Works on both owned and borrowed
-references:
+**Read** — `self.get()` borrows the stored `&T`. Works on both owned and
+borrowed references:
 
 ```rust
 // Lean: @[extern "rs_hasher_bytes"] opaque Hasher.bytes : @& Hasher → ByteArray
@@ -127,10 +258,10 @@ extern "C" fn rs_hasher_bytes(
 }
 ```
 
-**Update** — `.get_mut()` returns `Option<&mut T>`, which is `Some` when the
-object is exclusively owned (`m_rc == 1`). This enables
-in-place mutation without allocating a new external object. When shared `.get_mut()`
-returns `None` and instead clones into a new object on write.
+**Update** — `self.get_mut()` returns `Option<&mut T>`, which is `Some` when the
+object is exclusively owned (`m_rc == 1`). This enables in-place mutation
+without allocating a new external object. When shared `self.get_mut()` returns
+`None` and instead clones into a new object on write.
 
 ```rust
 // Lean: @[extern "rs_hasher_update"] opaque Hasher.update : Hasher → @& ByteArray → Hasher
@@ -156,15 +287,14 @@ extern "C" fn rs_hasher_update(
 - `LeanExternal<T, LeanOwned>` — `Drop` calls `lean_dec`. When the refcount
   reaches zero, Lean calls the class finalizer, which (via `register_with_drop`)
   runs `drop(Box::from_raw(ptr))` to free the Rust value.
-- `LeanExternal<T, LeanBorrowed<'_>>` — no refcount changes, no cleanup.
-  Use for `@&` parameters.
+- `LeanExternal<T, LeanBorrowed<'_>>` — no refcount changes, no cleanup. Use for
+  `@&` parameters.
 - Converting to `LeanOwned` (e.g. to store in a ctor field): call `.into()`.
-
 
 ### FFI function signatures
 
-Use domain types in `extern "C"` function signatures. The ownership type parameter
-tells Rust how to handle reference counting:
+Use domain types in `extern "C"` function signatures. The ownership type
+parameter tells Rust how to handle reference counting:
 
 ```rust
 // Lean: @[extern "process"] def process (xs : @& Array Nat) (n : Nat) : Array Nat
@@ -177,74 +307,45 @@ extern "C" fn process(
 }
 ```
 
-## Inductive Types and Field Layout
+More examples can be found in `src/test_ffi.rs` (Rust FFI implementations) and
+`Tests/FFI.lean` (Lean declarations and tests), covering all domain types,
+scalar field layouts, external objects, in-place mutation, and ownership
+patterns.
 
-Extra care must be taken when dealing with [inductive
-types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/#run-time-inductives)
-as the runtime memory layout of constructor fields may not match the
-declaration order in Lean. Fields are reordered into three groups:
+### In-Place Mutation
 
-1. Non-scalar fields (`lean_object*`), in declaration order
-2. `USize` fields, in declaration order
-3. Other scalar fields, in decreasing order by size, then declaration order within each size
-
-This means a structure like
-
-```lean
-structure Reorder where
-  flag : Bool
-  obj : Array Nat
-  size : UInt64
-```
-
-would be laid out as `[obj, size, flag]` at runtime — the `UInt64` is placed
-before the `Bool`. Trivial wrapper types (e.g. `Char` wraps `UInt32`) count as
-their underlying scalar type.
-
-Use `LeanCtor` methods to access fields at the correct offsets:
-
-```rust
-// 1 object field, scalars: u64 at offset 0, u8 (Bool) at offset 8
-let ctor = unsafe { LeanBorrowed::from_raw(ptr.as_raw()) }.as_ctor();
-let obj = ctor.get(0);              // object field by index
-let size = ctor.get_u64(1, 0);      // u64 at scalar offset 0 (past 1 non-scalar field)
-let flag = ctor.get_bool(1, 8);     // bool at scalar offset 8
-```
-
-## In-Place Mutation
-
-Lean's runtime supports in-place mutation when an object is **exclusively owned**
-(`m_rc == 1`, single-threaded mode). When shared, the object is copied first.
-`LeanRef::is_exclusive()` exposes this check.
+Lean's runtime supports in-place mutation when an object is **exclusively
+owned** (`m_rc == 1`, single-threaded mode). When shared, the object is copied
+first. `LeanRef::is_exclusive()` exposes this check.
 
 These methods consume `self` and return a (possibly new) object, mutating in
 place when exclusive or copying first when shared:
 
-### `LeanArray`
+#### `LeanArray`
 
-| Method | C equivalent | Description |
-|--------|--------------|-------------|
-| `set(&self, i, val)` | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
-| `uset(self, i, val)` | `lean_array_uset` | Set element (copies if shared) |
-| `push(self, val)` | `lean_array_push` | Append an element |
-| `pop(self)` | `lean_array_pop` | Remove the last element |
-| `uswap(self, i, j)` | `lean_array_uswap` | Swap elements at `i` and `j` |
+| Method              | C equivalent          | Description                                                        |
+| ------------------- | --------------------- | ------------------------------------------------------------------ |
+| `self.set(i, val)`  | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(i, val)` | `lean_array_uset`     | Set element (copies if shared)                                     |
+| `self.push(val)`    | `lean_array_push`     | Append an element                                                  |
+| `self.pop(self)`    | `lean_array_pop`      | Remove the last element                                            |
+| `self.uswap(i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
 
-### `LeanByteArray`
+#### `LeanByteArray`
 
-| Method | C equivalent | Description |
-|--------|--------------|-------------|
-| `set_data(&self, data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
-| `uset(self, i, val)` | `lean_byte_array_uset` | Set byte (copies if shared) |
-| `push(self, val)` | `lean_byte_array_push` | Append a byte |
-| `copy(self)` | `lean_copy_byte_array` | Deep copy into a new exclusive array |
+| Method                | C equivalent                | Description                                                       |
+| --------------------- | --------------------------- | ----------------------------------------------------------------- |
+| `self.set_data(data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(i, val)`   | `lean_byte_array_uset`      | Set byte (copies if shared)                                       |
+| `self.push(val)`      | `lean_byte_array_push`      | Append a byte                                                     |
+| `self.copy()`         | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
 
-### `LeanString`
+#### `LeanString`
 
-| Method | C equivalent | Description |
-|--------|--------------|-------------|
-| `push(self, c)` | `lean_string_push` | Append a UTF-32 character |
-| `append(self, other)` | `lean_string_append` | Concatenate another string (borrowed) |
+| Method               | C equivalent         | Description                           |
+| -------------------- | -------------------- | ------------------------------------- |
+| `self.push(c)`       | `lean_string_push`   | Append a UTF-32 character             |
+| `self.append(other)` | `lean_string_append` | Concatenate another string (borrowed) |
 
 `LeanExternal<T>` also supports in-place mutation via `get_mut()` — see the
 **Update** section under [External objects](#external-objects-leanexternalt-r).
@@ -253,7 +354,11 @@ place when exclusive or copying first when shared:
 
 ### Rust panic behavior
 
-By default, Rust uses stack unwinding for panics. If a panic occurs in a Lean-to-Rust FFI function, the unwinding will try to cross the FFI boundary back into Lean. This is [undefined behavior](https://doc.rust-lang.org/stable/reference/panic.html#unwinding-across-ffi-boundaries). To avoid this, configure Rust to abort on panic in `Cargo.toml`:
+By default, Rust uses stack unwinding for panics. If a panic occurs in a
+Lean-to-Rust FFI function, the unwinding will try to cross the FFI boundary back
+into Lean. This is
+[undefined behavior](https://doc.rust-lang.org/stable/reference/panic.html#unwinding-across-ffi-boundaries).
+To avoid this, configure Rust to abort on panic in `Cargo.toml`:
 
 ```toml
 [profile.release]
@@ -264,26 +369,26 @@ panic = "abort"
 
 Lean passes simple enums (inductives where all constructors have zero fields,
 e.g. `DefKind`, `QuotKind`) as **raw unboxed tag values** (`0`, `1`, `2`, ...)
-across the FFI boundary, not as `lean_box(tag)`. Use `LeanOwned::from_enum_tag()`
-and `LeanRef::as_enum_tag()` for these.
-
-### Persistent objects
-
-Module-level Lean definitions and objects in compact regions are persistent
-(`m_rc == 0`). Both `lean_inc_ref` and `lean_dec_ref` are no-ops for persistent
-objects, so `LeanOwned`, `LeanBorrowed`, `Clone`, and `Drop` all work correctly
-without special handling.
+across the FFI boundary, not as `lean_box(tag)`. Use
+`LeanOwned::from_enum_tag()` and `LeanRef::as_enum_tag()` for these.
 
 ### `lean_string_size` vs `lean_string_byte_size`
 
 `lean_string_byte_size` returns the **total object memory size**
-(`sizeof(lean_string_object) + capacity`), not the string data length.
-Use `lean_string_size` instead, which returns `m_size` — the number of data
-bytes including the NUL terminator. `LeanString` wraps these correctly:
+(`sizeof(lean_string_object) + capacity`), not the string data length. Use
+`lean_string_size` instead, which returns `m_size` — the number of data bytes
+including the NUL terminator. `LeanString` wraps these correctly:
 
-- `byte_len()` — data bytes excluding NUL (`m_size - 1`)
-- `length()` — UTF-8 character count (`m_length`)
-- `as_str()` — view as `&str`
+- `self.byte_len()` — data bytes excluding NUL (`m_size - 1`)
+- `self.length()` — UTF-8 character count (`m_length`)
+- `self.as_str()` — view as `&str`
+
+## References
+
+- [Lean FFI documentation](https://lean-lang.org/doc/reference/latest/Run-Time-Code/#runtime)
+- [`lean.h` C library](https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h)
+- [Counting Immutable Beans paper](https://arxiv.org/pdf/1908.05647)
+- [Rust FFI guide](https://doc.rust-lang.org/nomicon/ffi.html)
 
 ## License
 

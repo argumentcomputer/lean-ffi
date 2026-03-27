@@ -666,10 +666,10 @@ pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -
 // =============================================================================
 
 /// Clone an owned array and return the sum of lengths of both copies.
-/// Tests that Clone (lean_inc) produces a valid second handle.
+/// Tests that Clone (lean_inc) produces a valid second owned reference.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_clone_array_len_sum(arr_ptr: LeanArray<LeanBorrowed<'_>>) -> usize {
-    // Create an owned copy, then clone it
+    // Build an owned array, then clone it
     let owned: LeanArray<LeanOwned> = {
         let nats: Vec<Nat> = arr_ptr.map(|b| Nat::from_obj(&b));
         let arr = LeanArray::alloc(nats.len());
@@ -1035,7 +1035,7 @@ pub(crate) extern "C" fn rs_list_to_array_via_push(
 // =============================================================================
 
 /// Take a borrowed Nat, convert to owned via to_owned_ref, return it.
-/// Tests that to_owned_ref (lean_inc) produces a valid owned handle.
+/// Tests that to_owned_ref (lean_inc) produces a valid owned reference.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_borrow_to_owned(nat: LeanNat<LeanBorrowed<'_>>) -> LeanNat<LeanOwned> {
     LeanNat::new(nat.inner().to_owned_ref())
@@ -1208,10 +1208,10 @@ pub(crate) extern "C" fn rs_external_set_x(
 }
 
 // =============================================================================
-// External object: multiple field reads from same borrowed handle
+// External object: multiple field reads from same borrowed reference
 // =============================================================================
 
-/// Read all fields from a single borrowed external handle and return as a string.
+/// Read all fields from a single borrowed external reference and return as a string.
 /// Tests that multiple reads from a borrowed external don't corrupt state.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_external_all_fields(
@@ -1393,7 +1393,7 @@ pub(crate) extern "C" fn rs_shared_parallel_read(
 ) -> LeanNat<LeanOwned> {
     use std::thread;
 
-    // Create an owned copy and mark as MT
+    // Promote to owned reference and mark as MT
     let shared = LeanShared::new(arr.inner().to_owned_ref());
 
     let mut handles = Vec::new();

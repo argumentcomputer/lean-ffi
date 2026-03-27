@@ -58,7 +58,7 @@ impl Nat {
         self.0.to_bytes_le()
     }
 
-    /// Convert this `Nat` into a Lean `Nat` object (always owned).
+    /// Convert this `Nat` into a Lean `Nat` (returns an owned reference).
     pub fn to_lean(&self) -> LeanNat<LeanOwned> {
         // Try to get as u64 first
         if let Some(val) = self.to_u64() {
