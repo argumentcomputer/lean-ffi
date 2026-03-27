@@ -2,8 +2,8 @@
 
 A Rust library that wraps low-level bindings to the
 [`lean.h`](https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h)
-Lean C library with a high-level Rust API for safe and ergonomic FFI from Lean
-to Rust. This allows the user to focus on the actual Rust logic rather than
+Lean C library with a high-level API for safe and ergonomic FFI from Lean to
+Rust. This allows the user to focus on the actual Rust logic rather than
 manually manipulating pointers and keeping track of Lean reference counts.
 
 The Rust bindings are auto-generated with
@@ -18,21 +18,24 @@ In Lean's C API, a **reference** is a `lean_object*` pointer to the header of a
 heap-allocated object. References in Lean can either be **owned** or
 **borrowed**.
 
-An **owned reference**, signified by `lean_obj_arg` in C, uses reference
-counting via the `int m_rc` field of the `lean_object` to determine when to free
-the underlying object. Before a new reference to the object is created, the Lean
-compiler inserts a `lean_inc` call to increment the ref count. When the
-reference goes out of scope, the Lean compiler inserts a `lean_dec` call to
-decrement the ref count. When `m_rc` reaches 0, the Lean runtime frees the
-object.
+An **owned reference** is a `lean_object*` that participates in reference
+counting via the `int m_rc` field. Before a new reference to the object is
+created, the Lean compiler inserts a `lean_inc` call to increment the ref count.
+When the reference goes out of scope, the Lean compiler inserts a `lean_dec`
+call to decrement the ref count. When `m_rc` reaches 0, the Lean runtime frees
+the object. In C the conventional type alias for an owned reference is
+`lean_obj_arg` for function parameters and `lean_obj_res` for return values.
 
-A **borrowed reference**, signified by `@&` in Lean and `b_lean_obj_arg` in C,
-inherits the reference count of a surrounding owned reference, and is assumed to
-be kept alive as long as its parent. This enables the borrowed reference to
-dispense with reference counting altogether as it will get dropped when going
-out of scope.
+A **borrowed reference**, signified by `@&` in a Lean function parameter, is a
+`lean_object*` for which the compiler does not emit `lean_inc` or `lean_dec`
+calls, relying on a surrounding owned reference to keep the object alive. This
+is more efficient for cases when the object is known to outlive the borrowed
+reference, e.g. reading a constructor field. In C the conventional type alias
+for a borrowed reference is `b_lean_obj_arg` for function parameters and
+`b_lean_obj_res` for return values.
 
-> [!NOTE] A `lean_object*` can also refer to a tagged scalar value encoded as a
+> [!NOTE]
+> A `lean_object*` can also refer to a tagged scalar value encoded as a
 > pointer-sized data type, where the low bit (tag) of the pointer is set to 1.
 > In that case it would not be called a reference.
 
@@ -320,29 +323,29 @@ place when exclusive or copying first when shared:
 
 #### `LeanArray`
 
-| Method                    | C equivalent          | Description                                                        |
-| ------------------------- | --------------------- | ------------------------------------------------------------------ |
-| `self.set(&self, i, val)` | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
-| `self.uset(self, i, val)` | `lean_array_uset`     | Set element (copies if shared)                                     |
-| `self.push(self, val)`    | `lean_array_push`     | Append an element                                                  |
-| `self.pop(self)`          | `lean_array_pop`      | Remove the last element                                            |
-| `self.uswap(self, i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
+| Method              | C equivalent          | Description                                                        |
+| ------------------- | --------------------- | ------------------------------------------------------------------ |
+| `self.set(i, val)`  | `lean_array_set_core` | Set element (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(i, val)` | `lean_array_uset`     | Set element (copies if shared)                                     |
+| `self.push(val)`    | `lean_array_push`     | Append an element                                                  |
+| `self.pop(self)`    | `lean_array_pop`      | Remove the last element                                            |
+| `self.uswap(i, j)`  | `lean_array_uswap`    | Swap elements at `i` and `j`                                       |
 
 #### `LeanByteArray`
 
-| Method                       | C equivalent                | Description                                                       |
-| ---------------------------- | --------------------------- | ----------------------------------------------------------------- |
-| `self.set_data(&self, data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
-| `self.uset(self, i, val)`    | `lean_byte_array_uset`      | Set byte (copies if shared)                                       |
-| `self.push(self, val)`       | `lean_byte_array_push`      | Append a byte                                                     |
-| `self.copy(self)`            | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
+| Method                | C equivalent                | Description                                                       |
+| --------------------- | --------------------------- | ----------------------------------------------------------------- |
+| `self.set_data(data)` | `lean_sarray_cptr` + memcpy | Bulk write (asserts exclusive — use for freshly allocated arrays) |
+| `self.uset(i, val)`   | `lean_byte_array_uset`      | Set byte (copies if shared)                                       |
+| `self.push(val)`      | `lean_byte_array_push`      | Append a byte                                                     |
+| `self.copy()`         | `lean_copy_byte_array`      | Deep copy into a new exclusive array                              |
 
 #### `LeanString`
 
-| Method                     | C equivalent         | Description                           |
-| -------------------------- | -------------------- | ------------------------------------- |
-| `self.push(self, c)`       | `lean_string_push`   | Append a UTF-32 character             |
-| `self.append(self, other)` | `lean_string_append` | Concatenate another string (borrowed) |
+| Method               | C equivalent         | Description                           |
+| -------------------- | -------------------- | ------------------------------------- |
+| `self.push(c)`       | `lean_string_push`   | Append a UTF-32 character             |
+| `self.append(other)` | `lean_string_append` | Concatenate another string (borrowed) |
 
 `LeanExternal<T>` also supports in-place mutation via `get_mut()` — see the
 **Update** section under [External objects](#external-objects-leanexternalt-r).
