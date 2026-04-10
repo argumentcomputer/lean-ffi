@@ -64,6 +64,12 @@ opaque roundtripExtScalarStruct : @& ExtScalarStruct → ExtScalarStruct
 @[extern "rs_roundtrip_usize_struct"]
 opaque roundtripUSizeStruct : @& USizeStruct → USizeStruct
 
+@[extern "rs_roundtrip_bool_struct"]
+opaque roundtripBoolStruct : @& BoolStruct → BoolStruct
+
+@[extern "rs_roundtrip_multi_u32_struct"]
+opaque roundtripMultiU32Struct : @& MultiU32Struct → MultiU32Struct
+
 @[extern "rs_roundtrip_float"]
 opaque roundtripFloat : Float → Float
 
@@ -359,6 +365,12 @@ def borrowedRoundtripTests : TestSeq :=
   test "ExtScalarStruct max" (show Bool from roundtripExtScalarStruct ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩ == ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩) ++
   test "USizeStruct zeros" (roundtripUSizeStruct ⟨0, 0, 0⟩ == ⟨0, 0, 0⟩) ++
   test "USizeStruct mixed" (roundtripUSizeStruct ⟨42, 99, 255⟩ == ⟨42, 99, 255⟩) ++
+  test "BoolStruct all false" (roundtripBoolStruct ⟨0, false, false, false⟩ == ⟨0, false, false, false⟩) ++
+  test "BoolStruct all true" (roundtripBoolStruct ⟨42, true, true, true⟩ == ⟨42, true, true, true⟩) ++
+  test "BoolStruct mixed" (roundtripBoolStruct ⟨7, true, false, true⟩ == ⟨7, true, false, true⟩) ++
+  test "MultiU32Struct zeros" (roundtripMultiU32Struct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
+  test "MultiU32Struct max" (roundtripMultiU32Struct ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩ == ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩) ++
+  test "MultiU32Struct mixed" (roundtripMultiU32Struct ⟨1, 42, 0, 99⟩ == ⟨1, 42, 0, 99⟩) ++
   test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
   test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:") ++
   test "External large u64" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++

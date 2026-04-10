@@ -122,6 +122,24 @@ structure USizeStruct where
   u8val : UInt8
 deriving Repr, BEq, DecidableEq, Inhabited
 
+/-- Structure with multiple Bool scalar fields for batch-read/write testing.
+    Layout: 1 object field (obj : Nat), then 3 Bool scalars. -/
+structure BoolStruct where
+  obj : Nat
+  b1 : Bool
+  b2 : Bool
+  b3 : Bool
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure with multiple UInt32 scalar fields for batch-read/write testing.
+    Layout: 1 object field (obj : Nat), then 3 UInt32 scalars. -/
+structure MultiU32Struct where
+  obj : Nat
+  a : UInt32
+  b : UInt32
+  c : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
 /-! ## Shrinkable instances -/
 
 instance : Shrinkable Nat where

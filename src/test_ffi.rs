@@ -34,6 +34,10 @@ crate::lean_domain_type! {
     LeanUSizeStruct;
     /// Lean `RustData` — opaque external object
     LeanRustData;
+    /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
+    LeanBoolStruct;
+    /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
+    LeanMultiU32Struct;
 }
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
@@ -408,6 +412,44 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     out.set_usize(1, 0, uval);
     out.set_u8(2, 0, u8val);
     LeanUSizeStruct::new(out.into())
+}
+
+// =============================================================================
+// BoolStruct / MultiU32Struct roundtrips (batch scalar access)
+// =============================================================================
+
+/// Round-trip a BoolStruct using `scalars` / `set_scalars`.
+/// Lean layout: 1 obj field, then 3 Bool scalars at offsets 0, 1, 2.
+/// Total scalar size: 3 bytes.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_bool_struct(
+    ptr: LeanBoolStruct<LeanBorrowed<'_>>,
+) -> LeanBoolStruct<LeanOwned> {
+    let ctor = ptr.as_ctor();
+    let obj_nat = Nat::from_obj(&ctor.get(0));
+    let [b1, b2, b3] = ctor.scalars::<3, bool>(1, 0);
+
+    let out = LeanCtor::alloc(0, 1, 3);
+    out.set(0, build_nat(&obj_nat));
+    out.set_scalars::<3, bool>(1, 0, [b1, b2, b3]);
+    LeanBoolStruct::new(out.into())
+}
+
+/// Round-trip a MultiU32Struct using `scalars` / `set_scalars`.
+/// Lean layout: 1 obj field, then 3 UInt32 scalars at offsets 0, 4, 8.
+/// Total scalar size: 12 bytes.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
+    ptr: LeanMultiU32Struct<LeanBorrowed<'_>>,
+) -> LeanMultiU32Struct<LeanOwned> {
+    let ctor = ptr.as_ctor();
+    let obj_nat = Nat::from_obj(&ctor.get(0));
+    let [a, b, c] = ctor.scalars::<3, u32>(1, 0);
+
+    let out = LeanCtor::alloc(0, 1, 12);
+    out.set(0, build_nat(&obj_nat));
+    out.set_scalars::<3, u32>(1, 0, [a, b, c]);
+    LeanMultiU32Struct::new(out.into())
 }
 
 // =============================================================================
