@@ -1003,7 +1003,7 @@ impl<R: LeanRef> LeanCtor<R> {
     /// ```
     #[inline]
     pub fn scalar_base(&self, num_usize: usize) -> usize {
-        (self.num_objs() + num_usize) * std::mem::size_of::<usize>()
+        (self.num_objs() + num_usize) * size_of::<usize>()
     }
 
     /// All scalar accessors below take `offset` as an absolute byte offset
