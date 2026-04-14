@@ -36,6 +36,12 @@ use tags::*;
 /// Constructor tag for `IO.Error.userError`.
 const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 
+/// Convert a `usize` to `u32` for the Lean C API, panicking on overflow.
+#[inline]
+fn to_u32(val: usize) -> u32 {
+    u32::try_from(val).expect("value exceeds u32::MAX")
+}
+
 // =============================================================================
 // LeanRef trait — shared interface for owned and borrowed references
 // =============================================================================
@@ -924,13 +930,20 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 /// # Offset conventions
 ///
 /// For fixed-size scalar types (`u8`–`u64`, `f32`, `f64`, `bool`), `offset` is
-/// a byte offset into the data area and consecutive fields of the same type are
-/// `size_of::<T>()` bytes apart.
+/// an **absolute byte offset** from `lean_ctor_obj_cptr` — the same convention
+/// as the Lean C API functions `lean_ctor_get_uint8`, `lean_ctor_set_uint32`,
+/// etc. Use [`scalar_base`](Self::scalar_base) to compute where the scalar
+/// area starts:
 ///
-/// For `usize`, `offset` is a slot index (see above). `USize` slots sit right
-/// after object field slots, so `lean_ctor_get_usize(o, n + i)` retrieves the
-/// `i`-th `USize` field given `n` object field slots. Consecutive `usize`
-/// fields are 1 slot apart.
+/// ```ignore
+/// let base = ctor.scalar_base(0); // 0 USize fields; obj count from header
+/// let x = ctor.get_u64(base + 0);
+/// let y = ctor.get_u32(base + 8);
+/// ```
+///
+/// For `usize`, the accessor takes a 0-based **slot index**. `USize` slots sit
+/// right after object field slots; the header-derived object count is added
+/// internally, so `get_usize(0)` reads the first `USize` field.
 #[repr(transparent)]
 pub struct LeanCtor<R: LeanRef>(R);
 
@@ -956,9 +969,8 @@ impl<R: LeanRef> LeanCtor<R> {
 
     /// Get a borrowed reference to the `i`-th object field.
     pub fn get(&self, i: usize) -> LeanBorrowed<'_> {
-        #[allow(clippy::cast_possible_truncation)]
         LeanBorrowed(
-            unsafe { include::lean_ctor_get(self.0.as_raw(), i as u32) },
+            unsafe { include::lean_ctor_get(self.0.as_raw(), to_u32(i)) },
             PhantomData,
         )
     }
@@ -972,73 +984,71 @@ impl<R: LeanRef> LeanCtor<R> {
     // -------------------------------------------------------------------------
     // Scalar field readers
     // -------------------------------------------------------------------------
-    //
-    // `num_objs` is the number of non-scalar fields (object + usize) preceding
-    // the scalar area. `offset` is a byte offset within the scalar area.
-    // For `get_usize`, `slot` is a slot index (not byte offset).
 
-    /// Compute the absolute byte offset for a scalar field.
-    #[allow(clippy::cast_possible_truncation)]
+    /// Number of object fields, read from the constructor header.
     #[inline]
-    fn scalar_offset(num_objs: usize, offset: usize) -> u32 {
-        (num_objs * 8 + offset) as u32
+    pub fn num_objs(&self) -> usize {
+        unsafe { include::lean_ctor_num_objs(self.0.as_raw()) as usize }
     }
 
-    pub fn get_u8(&self, num_objs: usize, offset: usize) -> u8 {
-        unsafe {
-            include::lean_ctor_get_uint8(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+    /// Byte offset from `lean_ctor_obj_cptr` where fixed-size scalar fields
+    /// begin. Pass `num_usize` = number of `USize` fields in this constructor
+    /// (0 for most types). The object field count is read from the header.
+    ///
+    /// Use the returned value as a base when calling scalar accessors:
+    /// ```ignore
+    /// let base = ctor.scalar_base(0);
+    /// let x = ctor.get_u64(base + 0);
+    /// let y = ctor.get_u32(base + 8);
+    /// ```
+    #[inline]
+    pub fn scalar_base(&self, num_usize: usize) -> usize {
+        (self.num_objs() + num_usize) * std::mem::size_of::<usize>()
     }
-    pub fn get_u16(&self, num_objs: usize, offset: usize) -> u16 {
-        unsafe {
-            include::lean_ctor_get_uint16(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+
+    /// All scalar accessors below take `offset` as an absolute byte offset
+    /// from `lean_ctor_obj_cptr`, matching the Lean C API convention for
+    /// `lean_ctor_get_uint8`, `lean_ctor_get_uint32`, etc.
+    pub fn get_u8(&self, offset: usize) -> u8 {
+        unsafe { include::lean_ctor_get_uint8(self.0.as_raw(), to_u32(offset)) }
     }
-    pub fn get_u32(&self, num_objs: usize, offset: usize) -> u32 {
-        unsafe {
-            include::lean_ctor_get_uint32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+    pub fn get_u16(&self, offset: usize) -> u16 {
+        unsafe { include::lean_ctor_get_uint16(self.0.as_raw(), to_u32(offset)) }
     }
-    pub fn get_u64(&self, num_objs: usize, offset: usize) -> u64 {
-        unsafe {
-            include::lean_ctor_get_uint64(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+    pub fn get_u32(&self, offset: usize) -> u32 {
+        unsafe { include::lean_ctor_get_uint32(self.0.as_raw(), to_u32(offset)) }
     }
-    pub fn get_f64(&self, num_objs: usize, offset: usize) -> f64 {
-        unsafe {
-            include::lean_ctor_get_float(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+    pub fn get_u64(&self, offset: usize) -> u64 {
+        unsafe { include::lean_ctor_get_uint64(self.0.as_raw(), to_u32(offset)) }
     }
-    pub fn get_f32(&self, num_objs: usize, offset: usize) -> f32 {
-        unsafe {
-            include::lean_ctor_get_float32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
-        }
+    pub fn get_f64(&self, offset: usize) -> f64 {
+        unsafe { include::lean_ctor_get_float(self.0.as_raw(), to_u32(offset)) }
     }
-    /// Read a `usize` at `slot` after `num_objs` object fields.
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn get_usize(&self, num_objs: usize, slot: usize) -> usize {
-        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), (num_objs + slot) as u32) }
+    pub fn get_f32(&self, offset: usize) -> f32 {
+        unsafe { include::lean_ctor_get_float32(self.0.as_raw(), to_u32(offset)) }
     }
-    pub fn get_bool(&self, num_objs: usize, offset: usize) -> bool {
-        self.get_u8(num_objs, offset) != 0
+    /// Read a `usize` at the given slot index (0-based, relative to the first
+    /// `USize` slot after object fields). The object field count is read from
+    /// the header and added internally.
+    pub fn get_usize(&self, slot: usize) -> usize {
+        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), to_u32(self.num_objs() + slot)) }
+    }
+    pub fn get_bool(&self, offset: usize) -> bool {
+        self.get_u8(offset) != 0
     }
 
     /// Read `N` consecutive scalar fields of type `T` starting at `offset`.
     ///
-    /// `num_objs` is the number of object fields in this constructor.
-    /// `offset` is a byte offset for fixed-size scalars, or a slot index for
-    /// `usize` (see [`LeanCtorScalar`] for details on the data area layout).
-    pub fn scalars<const N: usize, T: LeanCtorScalar>(
-        &self,
-        num_objs: usize,
-        offset: usize,
-    ) -> [T; N] {
-        std::array::from_fn(|i| T::ctor_get(self, num_objs, offset + i * T::OFFSET))
+    /// `offset` is an absolute byte offset from `lean_ctor_obj_cptr` for
+    /// fixed-size scalars (use [`scalar_base`](Self::scalar_base) to compute
+    /// it), or a slot index for `usize`.
+    pub fn scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize) -> [T; N] {
+        std::array::from_fn(|i| T::ctor_get(self, offset + i * T::OFFSET))
     }
 
     /// Convenience alias for `scalars::<N, bool>`.
-    pub fn get_bools<const N: usize>(&self, num_objs: usize, offset: usize) -> [bool; N] {
-        self.scalars(num_objs, offset)
+    pub fn get_bools<const N: usize>(&self, offset: usize) -> [bool; N] {
+        self.scalars(offset)
     }
 }
 
@@ -1055,18 +1065,17 @@ impl LeanCtor<LeanOwned> {
 
     /// Allocate a new constructor object.
     pub fn alloc(tag: u8, num_objs: usize, scalar_size: usize) -> Self {
-        #[allow(clippy::cast_possible_truncation)]
-        let obj =
-            unsafe { include::lean_alloc_ctor(tag as u32, num_objs as u32, scalar_size as u32) };
+        let obj = unsafe {
+            include::lean_alloc_ctor(u32::from(tag), to_u32(num_objs), to_u32(scalar_size))
+        };
         Self(LeanOwned(obj))
     }
 
     /// Set the `i`-th object field. Takes ownership of `val`.
     pub fn set(&self, i: usize, val: impl Into<LeanOwned>) {
         let val: LeanOwned = val.into();
-        #[allow(clippy::cast_possible_truncation)]
         unsafe {
-            include::lean_ctor_set(self.0.as_raw(), i as u32, val.into_raw());
+            include::lean_ctor_set(self.0.as_raw(), to_u32(i), val.into_raw());
         }
     }
 
@@ -1082,92 +1091,66 @@ impl LeanCtor<LeanOwned> {
     // -------------------------------------------------------------------------
     // Scalar field setters (owned only — mutation)
     // -------------------------------------------------------------------------
+    //
+    // All setters take `offset` as an absolute byte offset from
+    // `lean_ctor_obj_cptr`, matching the Lean C API convention.
 
-    pub fn set_u8(&self, num_objs: usize, offset: usize, val: u8) {
+    pub fn set_u8(&self, offset: usize, val: u8) {
         unsafe {
-            include::lean_ctor_set_uint8(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_uint8(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn set_u16(&self, num_objs: usize, offset: usize, val: u16) {
+    pub fn set_u16(&self, offset: usize, val: u16) {
         unsafe {
-            include::lean_ctor_set_uint16(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_uint16(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn set_u32(&self, num_objs: usize, offset: usize, val: u32) {
+    pub fn set_u32(&self, offset: usize, val: u32) {
         unsafe {
-            include::lean_ctor_set_uint32(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_uint32(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn set_u64(&self, num_objs: usize, offset: usize, val: u64) {
+    pub fn set_u64(&self, offset: usize, val: u64) {
         unsafe {
-            include::lean_ctor_set_uint64(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_uint64(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn set_f64(&self, num_objs: usize, offset: usize, val: f64) {
+    pub fn set_f64(&self, offset: usize, val: f64) {
         unsafe {
-            include::lean_ctor_set_float(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_float(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn set_f32(&self, num_objs: usize, offset: usize, val: f32) {
+    pub fn set_f32(&self, offset: usize, val: f32) {
         unsafe {
-            include::lean_ctor_set_float32(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
+            include::lean_ctor_set_float32(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    /// Set a `usize` at slot `slot` past `num_objs` object fields.
-    /// Uses a **slot index** (not byte offset).
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn set_usize(&self, num_objs: usize, slot: usize, val: usize) {
+    /// Set a `usize` at the given slot index (0-based, relative to the first
+    /// `USize` slot after object fields). The object field count is read from
+    /// the header and added internally.
+    pub fn set_usize(&self, slot: usize, val: usize) {
         unsafe {
-            include::lean_ctor_set_usize(self.0.as_raw(), (num_objs + slot) as u32, val);
+            include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + slot), val);
         }
     }
-    pub fn set_bool(&self, num_objs: usize, offset: usize, val: bool) {
-        self.set_u8(num_objs, offset, val as u8);
+    pub fn set_bool(&self, offset: usize, val: bool) {
+        self.set_u8(offset, val as u8);
     }
 
     /// Write `N` consecutive scalar fields of type `T` starting at `offset`.
     ///
-    /// `num_objs` is the number of object fields in this constructor.
-    /// `offset` is a byte offset for fixed-size scalars, or a slot index for
-    /// `usize` (see [`LeanCtorScalar`] for details on the data area layout).
-    pub fn set_scalars<const N: usize, T: LeanCtorScalar>(
-        &self,
-        num_objs: usize,
-        offset: usize,
-        vals: [T; N],
-    ) {
+    /// `offset` is an absolute byte offset from `lean_ctor_obj_cptr` for
+    /// fixed-size scalars (use [`scalar_base`](LeanCtor::scalar_base) to
+    /// compute it), or a slot index for `usize`.
+    pub fn set_scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize, vals: [T; N]) {
         for (i, val) in vals.into_iter().enumerate() {
-            T::ctor_set(self, num_objs, offset + i * T::OFFSET, val);
+            T::ctor_set(self, offset + i * T::OFFSET, val);
         }
     }
 
     /// Convenience alias for `set_scalars::<N, bool>`.
-    pub fn set_bools<const N: usize>(&self, num_objs: usize, offset: usize, vals: [bool; N]) {
-        self.set_scalars(num_objs, offset, vals);
+    pub fn set_bools<const N: usize>(&self, offset: usize, vals: [bool; N]) {
+        self.set_scalars(offset, vals);
     }
 }
 
@@ -1194,90 +1177,90 @@ pub trait LeanCtorScalar: Copy {
     const OFFSET: usize;
 
     /// Read one scalar field at `offset`.
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self;
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self;
 
     /// Write one scalar field at `offset` (owned ctor only).
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self);
 }
 
 impl LeanCtorScalar for bool {
     const OFFSET: usize = 1;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_bool(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_bool(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_bool(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_bool(offset, val);
     }
 }
 
 impl LeanCtorScalar for u8 {
     const OFFSET: usize = 1;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_u8(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_u8(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_u8(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_u8(offset, val);
     }
 }
 
 impl LeanCtorScalar for u16 {
     const OFFSET: usize = 2;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_u16(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_u16(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_u16(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_u16(offset, val);
     }
 }
 
 impl LeanCtorScalar for u32 {
     const OFFSET: usize = 4;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_u32(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_u32(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_u32(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_u32(offset, val);
     }
 }
 
 impl LeanCtorScalar for u64 {
     const OFFSET: usize = 8;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_u64(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_u64(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_u64(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_u64(offset, val);
     }
 }
 
 impl LeanCtorScalar for f32 {
     const OFFSET: usize = 4;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_f32(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_f32(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_f32(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_f32(offset, val);
     }
 }
 
 impl LeanCtorScalar for f64 {
     const OFFSET: usize = 8;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_f64(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_f64(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_f64(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_f64(offset, val);
     }
 }
 
 impl LeanCtorScalar for usize {
     // USize fields are indexed by slot, so offset is 1 slot.
     const OFFSET: usize = 1;
-    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, num_objs: usize, offset: usize) -> Self {
-        ctor.get_usize(num_objs, offset)
+    fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
+        ctor.get_usize(offset)
     }
-    fn ctor_set(ctor: &LeanCtor<LeanOwned>, num_objs: usize, offset: usize, val: Self) {
-        ctor.set_usize(num_objs, offset, val);
+    fn ctor_set(ctor: &LeanCtor<LeanOwned>, offset: usize, val: Self) {
+        ctor.set_usize(offset, val);
     }
 }
 

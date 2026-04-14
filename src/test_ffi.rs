@@ -246,15 +246,17 @@ pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
 ) -> LeanScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
-    let u64val = ctor.get_u64(1, 0);
-    let u32val = ctor.get_u32(1, 8);
-    let u8val = ctor.get_u8(1, 12);
+    let s = ctor.scalar_base(0);
+    let u64val = ctor.get_u64(s);
+    let u32val = ctor.get_u32(s + 8);
+    let u8val = ctor.get_u8(s + 12);
 
     let out = LeanCtor::alloc(0, 1, 13);
+    let s = out.scalar_base(0);
     out.set(0, build_nat(&obj_nat));
-    out.set_u64(1, 0, u64val);
-    out.set_u32(1, 8, u32val);
-    out.set_u8(1, 12, u8val);
+    out.set_u64(s, u64val);
+    out.set_u32(s + 8, u32val);
+    out.set_u8(s + 12, u8val);
     LeanScalarStruct::new(out.into())
 }
 
@@ -373,21 +375,23 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
 ) -> LeanExtScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
-    let u64val = ctor.get_u64(1, 0);
-    let fval = ctor.get_f64(1, 8);
-    let u32val = ctor.get_u32(1, 16);
-    let f32val = ctor.get_f32(1, 20);
-    let u16val = ctor.get_u16(1, 24);
-    let u8val = ctor.get_u8(1, 26);
+    let s = ctor.scalar_base(0);
+    let u64val = ctor.get_u64(s);
+    let fval = ctor.get_f64(s + 8);
+    let u32val = ctor.get_u32(s + 16);
+    let f32val = ctor.get_f32(s + 20);
+    let u16val = ctor.get_u16(s + 24);
+    let u8val = ctor.get_u8(s + 26);
 
     let out = LeanCtor::alloc(0, 1, 27);
+    let s = out.scalar_base(0);
     out.set(0, build_nat(&obj_nat));
-    out.set_u64(1, 0, u64val);
-    out.set_f64(1, 8, fval);
-    out.set_u32(1, 16, u32val);
-    out.set_f32(1, 20, f32val);
-    out.set_u16(1, 24, u16val);
-    out.set_u8(1, 26, u8val);
+    out.set_u64(s, u64val);
+    out.set_f64(s + 8, fval);
+    out.set_u32(s + 16, u32val);
+    out.set_f32(s + 20, f32val);
+    out.set_u16(s + 24, u16val);
+    out.set_u8(s + 26, u8val);
     LeanExtScalarStruct::new(out.into())
 }
 
@@ -396,7 +400,7 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
 // =============================================================================
 
 /// Round-trip a USizeStruct.
-/// Lean layout: 1 obj field, then usize (slot 0), then u8 at scalar offset 0.
+/// Lean layout: 1 obj field, then usize (slot 0), then u8.
 /// Alloc: num_objs=1, scalar_sz=9 (8 for usize slot + 1 for u8).
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_usize_struct(
@@ -404,13 +408,15 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
 ) -> LeanUSizeStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
-    let uval = ctor.get_usize(1, 0);
-    let u8val = ctor.get_u8(2, 0);
+    let uval = ctor.get_usize(0);
+    let s = ctor.scalar_base(1); // 1 usize field
+    let u8val = ctor.get_u8(s);
 
     let out = LeanCtor::alloc(0, 1, 9);
     out.set(0, build_nat(&obj_nat));
-    out.set_usize(1, 0, uval);
-    out.set_u8(2, 0, u8val);
+    out.set_usize(0, uval);
+    let s = out.scalar_base(1);
+    out.set_u8(s, u8val);
     LeanUSizeStruct::new(out.into())
 }
 
@@ -427,11 +433,13 @@ pub(crate) extern "C" fn rs_roundtrip_bool_struct(
 ) -> LeanBoolStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
-    let [b1, b2, b3] = ctor.scalars::<3, bool>(1, 0);
+    let s = ctor.scalar_base(0);
+    let [b1, b2, b3] = ctor.scalars::<3, bool>(s);
 
     let out = LeanCtor::alloc(0, 1, 3);
+    let s = out.scalar_base(0);
     out.set(0, build_nat(&obj_nat));
-    out.set_scalars::<3, bool>(1, 0, [b1, b2, b3]);
+    out.set_scalars::<3, bool>(s, [b1, b2, b3]);
     LeanBoolStruct::new(out.into())
 }
 
@@ -444,11 +452,13 @@ pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
 ) -> LeanMultiU32Struct<LeanOwned> {
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
-    let [a, b, c] = ctor.scalars::<3, u32>(1, 0);
+    let s = ctor.scalar_base(0);
+    let [a, b, c] = ctor.scalars::<3, u32>(s);
 
     let out = LeanCtor::alloc(0, 1, 12);
+    let s = out.scalar_base(0);
     out.set(0, build_nat(&obj_nat));
-    out.set_scalars::<3, u32>(1, 0, [a, b, c]);
+    out.set_scalars::<3, u32>(s, [a, b, c]);
     LeanMultiU32Struct::new(out.into())
 }
 
@@ -696,9 +706,10 @@ pub(crate) extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> Le
 pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
     // Lean descending-size layout: u64(0), u32(8), u8(12)
     let ctor = ptr.as_ctor();
-    let u64val = ctor.get_u64(1, 0);
-    let u32val = ctor.get_u32(1, 8) as u64;
-    let u8val = ctor.get_u8(1, 12) as u64;
+    let s = ctor.scalar_base(0);
+    let u64val = ctor.get_u64(s);
+    let u32val = ctor.get_u32(s + 8) as u64;
+    let u8val = ctor.get_u8(s + 12) as u64;
     u64val + u32val + u8val
     // ptr drops here → lean_dec
 }
