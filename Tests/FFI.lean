@@ -64,6 +64,9 @@ opaque roundtripExtScalarStruct : @& ExtScalarStruct → ExtScalarStruct
 @[extern "rs_roundtrip_usize_struct"]
 opaque roundtripUSizeStruct : @& USizeStruct → USizeStruct
 
+@[extern "rs_roundtrip_usize_mixed_struct"]
+opaque roundtripUSizeMixedStruct : @& USizeMixedStruct → USizeMixedStruct
+
 @[extern "rs_roundtrip_bool_struct"]
 opaque roundtripBoolStruct : @& BoolStruct → BoolStruct
 
@@ -365,6 +368,9 @@ def borrowedRoundtripTests : TestSeq :=
   test "ExtScalarStruct max" (show Bool from roundtripExtScalarStruct ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩ == ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩) ++
   test "USizeStruct zeros" (roundtripUSizeStruct ⟨0, 0, 0⟩ == ⟨0, 0, 0⟩) ++
   test "USizeStruct mixed" (roundtripUSizeStruct ⟨42, 99, 255⟩ == ⟨42, 99, 255⟩) ++
+  -- USizeMixedStruct declaration order: obj, u64val, bval, uval, u32val
+  test "USizeMixedStruct zeros" (roundtripUSizeMixedStruct ⟨0, 0, false, 0, 0⟩ == ⟨0, 0, false, 0, 0⟩) ++
+  test "USizeMixedStruct mixed" (roundtripUSizeMixedStruct ⟨42, 0xFFFFFFFFFFFFFFFF, true, 99, 0xFFFFFFFF⟩ == ⟨42, 0xFFFFFFFFFFFFFFFF, true, 99, 0xFFFFFFFF⟩) ++
   test "BoolStruct all false" (roundtripBoolStruct ⟨0, false, false, false⟩ == ⟨0, false, false, false⟩) ++
   test "BoolStruct all true" (roundtripBoolStruct ⟨42, true, true, true⟩ == ⟨42, true, true, true⟩) ++
   test "BoolStruct mixed" (roundtripBoolStruct ⟨7, true, false, true⟩ == ⟨7, true, false, true⟩) ++

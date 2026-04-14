@@ -34,6 +34,8 @@ crate::lean_domain_type! {
     LeanUSizeStruct;
     /// Lean `RustData` — opaque external object
     LeanRustData;
+    /// Lean `USizeMixedStruct` — structure with USize + u64 + u32 + Bool
+    LeanUSizeMixedStruct;
     /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
     LeanBoolStruct;
     /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
@@ -418,6 +420,31 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     let s = out.scalar_base(1);
     out.set_u8(s, u8val);
     LeanUSizeStruct::new(out.into())
+}
+
+/// Round-trip a USizeMixedStruct.
+/// Lean layout: 1 obj field, 1 usize slot, then scalars: u64(+0), u32(+8), bool(+12).
+/// Total scalar size: 8 (usize) + 8 (u64) + 4 (u32) + 1 (bool) = 21 bytes.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
+    ptr: LeanUSizeMixedStruct<LeanBorrowed<'_>>,
+) -> LeanUSizeMixedStruct<LeanOwned> {
+    let ctor = ptr.as_ctor();
+    let obj_nat = Nat::from_obj(&ctor.get(0));
+    let uval = ctor.get_usize(0);
+    let s = ctor.scalar_base(1); // 1 usize field
+    let u64val = ctor.get_u64(s);
+    let u32val = ctor.get_u32(s + 8);
+    let bval = ctor.get_bool(s + 12);
+
+    let out = LeanCtor::alloc(0, 1, 21);
+    out.set(0, build_nat(&obj_nat));
+    out.set_usize(0, uval);
+    let s = out.scalar_base(1);
+    out.set_u64(s, u64val);
+    out.set_u32(s + 8, u32val);
+    out.set_bool(s + 12, bval);
+    LeanUSizeMixedStruct::new(out.into())
 }
 
 // =============================================================================

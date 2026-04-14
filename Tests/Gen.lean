@@ -122,6 +122,20 @@ structure USizeStruct where
   u8val : UInt8
 deriving Repr, BEq, DecidableEq, Inhabited
 
+/-- Structure mixing USize with other scalar types.
+    Declaration order deliberately differs from memory layout to test
+    that FFI code handles Lean's field reordering correctly.
+    Declaration: obj, u64val, bval, uval, u32val
+    Memory layout: [obj] [uval (usize slot)] [u64val @ +0] [u32val @ +8] [bval @ +12]
+    Total scalar size = 8 (usize) + 8 (u64) + 4 (u32) + 1 (bool) = 21. -/
+structure USizeMixedStruct where
+  obj : Nat
+  u64val : UInt64
+  bval : Bool
+  uval : USize
+  u32val : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
 /-- Structure with multiple Bool scalar fields for batch-read/write testing.
     Layout: 1 object field (obj : Nat), then 3 Bool scalars. -/
 structure BoolStruct where
