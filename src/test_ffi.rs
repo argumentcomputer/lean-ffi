@@ -12,9 +12,9 @@ use std::sync::LazyLock;
 use crate::include;
 use crate::nat::Nat;
 use crate::object::{
-    ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor,
-    LeanCtorScalar, LeanExcept, LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption,
-    LeanOwned, LeanProd, LeanRef, LeanString,
+    ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor, LeanCtorScalar,
+    LeanExcept, LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption, LeanOwned, LeanProd,
+    LeanRef, LeanString,
 };
 
 // =============================================================================
@@ -50,7 +50,9 @@ crate::lean_domain_type! {
 impl<R: LeanRef> LeanCtorScalar for LeanScalarStruct<R> {
     const NUM_8B: usize = 1;
     const NUM_4B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 // ExtScalarStruct: 1 obj, scalars: u64, f64, u32, f32, u16, u8
@@ -58,13 +60,17 @@ impl<R: LeanRef> LeanCtorScalar for LeanExtScalarStruct<R> {
     const NUM_8B: usize = 2; // u64 + f64
     const NUM_4B: usize = 2; // u32 + f32
     const NUM_2B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 // USizeStruct: 1 obj, 1 usize, u8
 impl<R: LeanRef> LeanCtorScalar for LeanUSizeStruct<R> {
     const NUM_USIZE: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 // USizeMixedStruct: 1 obj, 1 usize, scalars: u64, u32, bool
@@ -72,18 +78,24 @@ impl<R: LeanRef> LeanCtorScalar for LeanUSizeMixedStruct<R> {
     const NUM_USIZE: usize = 1;
     const NUM_8B: usize = 1;
     const NUM_4B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 // BoolStruct: 1 obj, 3 bools
 impl<R: LeanRef> LeanCtorScalar for LeanBoolStruct<R> {
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 // MultiU32Struct: 1 obj, 3 u32s
 impl<R: LeanRef> LeanCtorScalar for LeanMultiU32Struct<R> {
     const NUM_4B: usize = 3;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
+        self.as_ctor()
+    }
 }
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).

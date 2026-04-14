@@ -1085,7 +1085,6 @@ impl<R: LeanRef> LeanCtor<R> {
         self.get_u8(offset) != 0
     }
 
-
     // -------------------------------------------------------------------------
     // Scalar field setters
     // -------------------------------------------------------------------------
@@ -1095,35 +1094,48 @@ impl<R: LeanRef> LeanCtor<R> {
     // Available on all R: LeanRef (not restricted to LeanOwned).
 
     pub fn set_u8(&self, offset: usize, val: u8) {
-        unsafe { include::lean_ctor_set_uint8(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint8(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     pub fn set_u16(&self, offset: usize, val: u16) {
-        unsafe { include::lean_ctor_set_uint16(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint16(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     pub fn set_u32(&self, offset: usize, val: u32) {
-        unsafe { include::lean_ctor_set_uint32(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint32(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     pub fn set_u64(&self, offset: usize, val: u64) {
-        unsafe { include::lean_ctor_set_uint64(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_uint64(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     pub fn set_f64(&self, offset: usize, val: f64) {
-        unsafe { include::lean_ctor_set_float(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_float(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     pub fn set_f32(&self, offset: usize, val: f32) {
-        unsafe { include::lean_ctor_set_float32(self.0.as_raw(), to_u32(offset), val); }
+        unsafe {
+            include::lean_ctor_set_float32(self.0.as_raw(), to_u32(offset), val);
+        }
     }
     /// Set a `USize` field. `USize` fields occupy pointer-width entries in
     /// the data area right after object fields. `index` is relative to
     /// the first `USize` entry; the object field count is read from the header
     /// and added internally.
     pub fn set_usize(&self, index: usize, val: usize) {
-        unsafe { include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + index), val); }
+        unsafe {
+            include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + index), val);
+        }
     }
     /// Write a single `Bool` scalar field (`uint8_t`, 0 or 1).
     pub fn set_bool(&self, offset: usize, val: bool) {
         self.set_u8(offset, val as u8);
     }
-
 }
 
 impl LeanCtor<LeanOwned> {
@@ -1241,28 +1253,38 @@ pub trait LeanCtorScalar {
     // -- 4-byte tier (UInt32 / Float32) --
 
     fn get_32(&self, i: usize) -> u32 {
-        self.as_ctor().get_u32(self.scalar_base() + Self::NUM_8B * 8 + i * 4)
+        self.as_ctor()
+            .get_u32(self.scalar_base() + Self::NUM_8B * 8 + i * 4)
     }
     fn set_32(&self, i: usize, val: u32) {
-        self.as_ctor().set_u32(self.scalar_base() + Self::NUM_8B * 8 + i * 4, val)
+        self.as_ctor()
+            .set_u32(self.scalar_base() + Self::NUM_8B * 8 + i * 4, val)
     }
 
     // -- 2-byte tier (UInt16) --
 
     fn get_16(&self, i: usize) -> u16 {
-        self.as_ctor().get_u16(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + i * 2)
+        self.as_ctor()
+            .get_u16(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + i * 2)
     }
     fn set_16(&self, i: usize, val: u16) {
-        self.as_ctor().set_u16(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + i * 2, val)
+        self.as_ctor().set_u16(
+            self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + i * 2,
+            val,
+        )
     }
 
     // -- 1-byte tier (UInt8 / Bool) --
 
     fn get_8(&self, i: usize) -> u8 {
-        self.as_ctor().get_u8(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + Self::NUM_2B * 2 + i)
+        self.as_ctor()
+            .get_u8(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + Self::NUM_2B * 2 + i)
     }
     fn set_8(&self, i: usize, val: u8) {
-        self.as_ctor().set_u8(self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + Self::NUM_2B * 2 + i, val)
+        self.as_ctor().set_u8(
+            self.scalar_base() + Self::NUM_8B * 8 + Self::NUM_4B * 4 + Self::NUM_2B * 2 + i,
+            val,
+        )
     }
 }
 
