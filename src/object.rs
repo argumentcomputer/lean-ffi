@@ -1197,7 +1197,6 @@ impl LeanCtor<LeanOwned> {
             T::ctor_set(self, offset + i * T::OFFSET, val);
         }
     }
-
 }
 
 impl From<LeanCtor<LeanOwned>> for LeanOwned {
