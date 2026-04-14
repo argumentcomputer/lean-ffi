@@ -47,56 +47,17 @@ crate::lean_domain_type! {
 }
 
 // ScalarStruct: 1 obj, scalars: u64, u32, u8
-impl<R: LeanRef> LeanCtorScalar for LeanScalarStruct<R> {
-    const NUM_8B: usize = 1;
-    const NUM_4B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
-
+crate::impl_ctor_scalar!(LeanScalarStruct { NUM_8B = 1, NUM_4B = 1 });
 // ExtScalarStruct: 1 obj, scalars: u64, f64, u32, f32, u16, u8
-impl<R: LeanRef> LeanCtorScalar for LeanExtScalarStruct<R> {
-    const NUM_8B: usize = 2; // u64 + f64
-    const NUM_4B: usize = 2; // u32 + f32
-    const NUM_2B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
-
+crate::impl_ctor_scalar!(LeanExtScalarStruct { NUM_8B = 2, NUM_4B = 2, NUM_2B = 1 });
 // USizeStruct: 1 obj, 1 usize, u8
-impl<R: LeanRef> LeanCtorScalar for LeanUSizeStruct<R> {
-    const NUM_USIZE: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
-
+crate::impl_ctor_scalar!(LeanUSizeStruct { NUM_USIZE = 1 });
 // USizeMixedStruct: 1 obj, 1 usize, scalars: u64, u32, bool
-impl<R: LeanRef> LeanCtorScalar for LeanUSizeMixedStruct<R> {
-    const NUM_USIZE: usize = 1;
-    const NUM_8B: usize = 1;
-    const NUM_4B: usize = 1;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
-
+crate::impl_ctor_scalar!(LeanUSizeMixedStruct { NUM_USIZE = 1, NUM_8B = 1, NUM_4B = 1 });
 // BoolStruct: 1 obj, 3 bools
-impl<R: LeanRef> LeanCtorScalar for LeanBoolStruct<R> {
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
-
+crate::impl_ctor_scalar!(LeanBoolStruct {});
 // MultiU32Struct: 1 obj, 3 u32s
-impl<R: LeanRef> LeanCtorScalar for LeanMultiU32Struct<R> {
-    const NUM_4B: usize = 3;
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> {
-        self.as_ctor()
-    }
-}
+crate::impl_ctor_scalar!(LeanMultiU32Struct { NUM_4B = 3 });
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
 fn build_nat(n: &Nat) -> LeanOwned {

@@ -1288,6 +1288,33 @@ pub trait LeanCtorScalar {
     }
 }
 
+/// Byte offset from `lean_ctor_obj_cptr` where fixed-size scalar fields begin.
+///
+/// Use this for multi-constructor inductives where [`LeanCtorScalar`] doesn't
+/// apply because the scalar layout varies per constructor tag. `num_usize` is
+/// the number of `USize` fields (0 for most types).
+#[inline]
+pub fn scalar_base(ctor: &LeanCtor<impl LeanRef>, num_usize: usize) -> usize {
+    (ctor.num_objs() + num_usize) * size_of::<usize>()
+}
+
+/// Implement [`LeanCtorScalar`] for a `lean_domain_type!` structure type.
+///
+/// ```ignore
+/// impl_ctor_scalar!(LeanFoo { NUM_8B = 1, NUM_4B = 2 });
+/// ```
+#[macro_export]
+macro_rules! impl_ctor_scalar {
+    ($ty:ident { $($const:ident = $val:expr),* $(,)? }) => {
+        impl<R: $crate::object::LeanRef> $crate::object::LeanCtorScalar for $ty<R> {
+            $(const $const: usize = $val;)*
+            fn as_ctor(&self) -> $crate::object::LeanCtor<$crate::object::LeanBorrowed<'_>> {
+                self.as_ctor()
+            }
+        }
+    };
+}
+
 // =============================================================================
 // LeanExternal<T> — External objects (tag LEAN_TAG_EXTERNAL)
 // =============================================================================
