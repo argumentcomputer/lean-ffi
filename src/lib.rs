@@ -61,6 +61,7 @@ pub unsafe extern "C" fn noop_foreach(_: *mut c_void, _: *mut include::lean_obje
 ///
 /// Domain types should be prefixed with `Lean` to distinguish them from Lean-side types
 /// and to match the built-in types (`LeanArray`, `LeanString`, `LeanNat`, etc.).
+///
 /// For example, a Lean `Point` structure becomes `LeanPoint` in Rust:
 ///
 /// ```ignore
@@ -69,6 +70,11 @@ pub unsafe extern "C" fn noop_foreach(_: *mut c_void, _: *mut include::lean_obje
 ///     LeanPoint;
 /// }
 /// ```
+///
+/// For structures with scalar fields, implement [`LeanCtorScalar`] on
+/// the generated type to get type-indexed `get_*`/`set_*` accessors.
+///
+/// [`LeanCtorScalar`]: object::LeanCtorScalar
 #[macro_export]
 macro_rules! lean_domain_type {
   ($($(#[$meta:meta])* $name:ident;)*) => {$(

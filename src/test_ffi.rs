@@ -12,9 +12,9 @@ use std::sync::LazyLock;
 use crate::include;
 use crate::nat::Nat;
 use crate::object::{
-    ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor, LeanExcept,
-    LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption, LeanOwned, LeanProd, LeanRef,
-    LeanString,
+    ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor,
+    LeanCtorScalar, LeanExcept, LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption,
+    LeanOwned, LeanProd, LeanRef, LeanString,
 };
 
 // =============================================================================
@@ -36,10 +36,54 @@ crate::lean_domain_type! {
     LeanRustData;
     /// Lean `USizeMixedStruct` — structure with USize + u64 + u32 + Bool
     LeanUSizeMixedStruct;
+}
+
+// Test LeanCtorScalar trait
+crate::lean_domain_type! {
     /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
     LeanBoolStruct;
     /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
     LeanMultiU32Struct;
+}
+
+// ScalarStruct: 1 obj, scalars: u64, u32, u8
+impl<R: LeanRef> LeanCtorScalar for LeanScalarStruct<R> {
+    const NUM_8B: usize = 1;
+    const NUM_4B: usize = 1;
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+}
+
+// ExtScalarStruct: 1 obj, scalars: u64, f64, u32, f32, u16, u8
+impl<R: LeanRef> LeanCtorScalar for LeanExtScalarStruct<R> {
+    const NUM_8B: usize = 2; // u64 + f64
+    const NUM_4B: usize = 2; // u32 + f32
+    const NUM_2B: usize = 1;
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+}
+
+// USizeStruct: 1 obj, 1 usize, u8
+impl<R: LeanRef> LeanCtorScalar for LeanUSizeStruct<R> {
+    const NUM_USIZE: usize = 1;
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+}
+
+// USizeMixedStruct: 1 obj, 1 usize, scalars: u64, u32, bool
+impl<R: LeanRef> LeanCtorScalar for LeanUSizeMixedStruct<R> {
+    const NUM_USIZE: usize = 1;
+    const NUM_8B: usize = 1;
+    const NUM_4B: usize = 1;
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+}
+
+// BoolStruct: 1 obj, 3 bools
+impl<R: LeanRef> LeanCtorScalar for LeanBoolStruct<R> {
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
+}
+
+// MultiU32Struct: 1 obj, 3 u32s
+impl<R: LeanRef> LeanCtorScalar for LeanMultiU32Struct<R> {
+    const NUM_4B: usize = 3;
+    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>> { self.as_ctor() }
 }
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
@@ -239,32 +283,25 @@ pub(crate) extern "C" fn rs_io_result_error_string(
 // LeanCtor scalar fields
 // =============================================================================
 
-/// Round-trip a ScalarStruct.
-/// Lean layout: 1 obj field, then scalars by descending size: u64(0), u32(8), u8(12).
+/// Round-trip a ScalarStruct using LeanCtorScalar trait.
+/// Lean layout: 1 obj field, then scalars by descending size: u64, u32, u8.
 /// Total scalar size: 8 + 4 + 1 = 13 bytes.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     ptr: LeanScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanScalarStruct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    assert!(ctor.num_objs() == 1, "ScalarStruct should have 1 obj field");
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let s = ctor.scalar_base(0);
-    let u64val = ctor.get_u64(s);
-    let u32val = ctor.get_u32(s + 8);
-    let u8val = ctor.get_u8(s + 12);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    let u64val = ptr.get_64(0);
+    let u32val = ptr.get_32(0);
+    let u8val = ptr.get_8(0);
 
-    let out = LeanCtor::alloc(0, 1, 13);
-    assert!(
-        out.num_objs() == 1,
-        "alloc'd ScalarStruct should have 1 obj field"
-    );
-    let s = out.scalar_base(0);
-    out.set(0, build_nat(&obj_nat));
-    out.set_u64(s, u64val);
-    out.set_u32(s + 8, u32val);
-    out.set_u8(s + 12, u8val);
-    LeanScalarStruct::new(out.into())
+    let ctor = LeanCtor::alloc(0, 1, 13);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanScalarStruct::new(ctor.into());
+    out.set_64(0, u64val);
+    out.set_32(0, u32val);
+    out.set_8(0, u8val);
+    out
 }
 
 // =============================================================================
@@ -373,135 +410,125 @@ pub(crate) extern "C" fn rs_external_get_label(
 // Extended scalar struct roundtrip (u8, u16, u32, u64, f64, f32)
 // =============================================================================
 
-/// Round-trip an ExtScalarStruct.
-/// Lean layout: 1 obj, then descending size: u64(0), f64(8), u32(16), f32(20), u16(24), u8(26).
+/// Round-trip an ExtScalarStruct using LeanCtorScalar trait.
+/// Lean layout: 1 obj, then descending size: u64, f64, u32, f32, u16, u8.
 /// Total scalar: 27 bytes.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
     ptr: LeanExtScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanExtScalarStruct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    assert!(
-        ctor.num_objs() == 1,
-        "ExtScalarStruct should have 1 obj field"
-    );
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let s = ctor.scalar_base(0);
-    assert!(s == 8, "scalar_base(0) with 1 obj should be 8");
-    let u64val = ctor.get_u64(s);
-    let fval = ctor.get_f64(s + 8);
-    let u32val = ctor.get_u32(s + 16);
-    let f32val = ctor.get_f32(s + 20);
-    let u16val = ctor.get_u16(s + 24);
-    let u8val = ctor.get_u8(s + 26);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    // 8-byte tier: u64 at index 0, f64 at index 1
+    let u64val = ptr.get_64(0);
+    let fval = f64::from_bits(ptr.get_64(1));
+    // 4-byte tier: u32 at index 0, f32 at index 1
+    let u32val = ptr.get_32(0);
+    let f32val = f32::from_bits(ptr.get_32(1));
+    let u16val = ptr.get_16(0);
+    let u8val = ptr.get_8(0);
 
-    let out = LeanCtor::alloc(0, 1, 27);
-    let s = out.scalar_base(0);
-    out.set(0, build_nat(&obj_nat));
-    out.set_u64(s, u64val);
-    out.set_f64(s + 8, fval);
-    out.set_u32(s + 16, u32val);
-    out.set_f32(s + 20, f32val);
-    out.set_u16(s + 24, u16val);
-    out.set_u8(s + 26, u8val);
-    LeanExtScalarStruct::new(out.into())
+    let ctor = LeanCtor::alloc(0, 1, 27);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanExtScalarStruct::new(ctor.into());
+    out.set_64(0, u64val);
+    out.set_64(1, fval.to_bits());
+    out.set_32(0, u32val);
+    out.set_32(1, f32val.to_bits());
+    out.set_16(0, u16val);
+    out.set_8(0, u8val);
+    out
 }
 
 // =============================================================================
 // USize struct roundtrip
 // =============================================================================
 
-/// Round-trip a USizeStruct.
-/// Lean layout: 1 obj field, then usize (slot 0), then u8.
-/// Alloc: num_objs=1, scalar_sz=9 (8 for usize slot + 1 for u8).
+/// Round-trip a USizeStruct using LeanCtorScalar trait.
+/// Lean layout: 1 obj field, 1 usize field, then u8.
+/// Alloc: num_objs=1, scalar_sz=9 (8 for usize + 1 for u8).
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     ptr: LeanUSizeStruct<LeanBorrowed<'_>>,
 ) -> LeanUSizeStruct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let uval = ctor.get_usize(0);
-    let s = ctor.scalar_base(1); // 1 usize field
-    let u8val = ctor.get_u8(s);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    let uval = ptr.get_usize(0);
+    let u8val = ptr.get_8(0);
 
-    let out = LeanCtor::alloc(0, 1, 9);
-    out.set(0, build_nat(&obj_nat));
+    let ctor = LeanCtor::alloc(0, 1, 9);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanUSizeStruct::new(ctor.into());
     out.set_usize(0, uval);
-    let s = out.scalar_base(1);
-    out.set_u8(s, u8val);
-    LeanUSizeStruct::new(out.into())
+    out.set_8(0, u8val);
+    out
 }
 
-/// Round-trip a USizeMixedStruct.
-/// Lean layout: 1 obj field, 1 usize slot, then scalars: u64(+0), u32(+8), bool(+12).
+/// Round-trip a USizeMixedStruct using LeanCtorScalar trait.
+/// Lean layout: 1 obj field, 1 usize field, then scalars: u64, u32, bool.
 /// Total scalar size: 8 (usize) + 8 (u64) + 4 (u32) + 1 (bool) = 21 bytes.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
     ptr: LeanUSizeMixedStruct<LeanBorrowed<'_>>,
 ) -> LeanUSizeMixedStruct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    // num_objs() should return 1 (only the Nat obj field), not counting USize
-    assert!(
-        ctor.num_objs() == 1,
-        "USizeMixedStruct should have 1 obj field"
-    );
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let uval = ctor.get_usize(0);
-    let s = ctor.scalar_base(1); // 1 usize field
-    let u64val = ctor.get_u64(s);
-    let u32val = ctor.get_u32(s + 8);
-    let bval = ctor.get_bool(s + 12);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    let uval = ptr.get_usize(0);
+    let u64val = ptr.get_64(0);
+    let u32val = ptr.get_32(0);
+    let bval = ptr.get_8(0) != 0;
 
-    let out = LeanCtor::alloc(0, 1, 21);
-    out.set(0, build_nat(&obj_nat));
+    let ctor = LeanCtor::alloc(0, 1, 21);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanUSizeMixedStruct::new(ctor.into());
     out.set_usize(0, uval);
-    let s = out.scalar_base(1);
-    out.set_u64(s, u64val);
-    out.set_u32(s + 8, u32val);
-    out.set_bool(s + 12, bval);
-    LeanUSizeMixedStruct::new(out.into())
+    out.set_64(0, u64val);
+    out.set_32(0, u32val);
+    out.set_8(0, bval as u8);
+    out
 }
 
 // =============================================================================
 // BoolStruct / MultiU32Struct roundtrips (batch scalar access)
 // =============================================================================
 
-/// Round-trip a BoolStruct using `get_scalars` / `set_scalars` with bool.
-/// Lean layout: 1 obj field, then 3 Bool scalars at offsets 0, 1, 2.
+/// Round-trip a BoolStruct using LeanCtorScalar trait.
+/// Lean layout: 1 obj field, then 3 Bool scalars.
 /// Total scalar size: 3 bytes.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_bool_struct(
     ptr: LeanBoolStruct<LeanBorrowed<'_>>,
 ) -> LeanBoolStruct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let s = ctor.scalar_base(0);
-    let [b1, b2, b3] = ctor.get_scalars::<3, bool>(s);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    let b1 = ptr.get_8(0);
+    let b2 = ptr.get_8(1);
+    let b3 = ptr.get_8(2);
 
-    let out = LeanCtor::alloc(0, 1, 3);
-    let s = out.scalar_base(0);
-    out.set(0, build_nat(&obj_nat));
-    out.set_scalars::<3, bool>(s, [b1, b2, b3]);
-    LeanBoolStruct::new(out.into())
+    let ctor = LeanCtor::alloc(0, 1, 3);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanBoolStruct::new(ctor.into());
+    out.set_8(0, b1);
+    out.set_8(1, b2);
+    out.set_8(2, b3);
+    out
 }
 
-/// Round-trip a MultiU32Struct using `scalars` / `set_scalars`.
-/// Lean layout: 1 obj field, then 3 UInt32 scalars at offsets 0, 4, 8.
+/// Round-trip a MultiU32Struct using LeanCtorScalar trait.
+/// Lean layout: 1 obj field, then 3 UInt32 scalars.
 /// Total scalar size: 12 bytes.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
     ptr: LeanMultiU32Struct<LeanBorrowed<'_>>,
 ) -> LeanMultiU32Struct<LeanOwned> {
-    let ctor = ptr.as_ctor();
-    let obj_nat = Nat::from_obj(&ctor.get(0));
-    let s = ctor.scalar_base(0);
-    let [a, b, c] = ctor.get_scalars::<3, u32>(s);
+    let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
+    let a = ptr.get_32(0);
+    let b = ptr.get_32(1);
+    let c = ptr.get_32(2);
 
-    let out = LeanCtor::alloc(0, 1, 12);
-    let s = out.scalar_base(0);
-    out.set(0, build_nat(&obj_nat));
-    out.set_scalars::<3, u32>(s, [a, b, c]);
-    LeanMultiU32Struct::new(out.into())
+    let ctor = LeanCtor::alloc(0, 1, 12);
+    ctor.set(0, build_nat(&obj_nat));
+    let out = LeanMultiU32Struct::new(ctor.into());
+    out.set_32(0, a);
+    out.set_32(1, b);
+    out.set_32(2, c);
+    out
 }
 
 // =============================================================================
@@ -737,21 +764,12 @@ pub(crate) extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> Le
     Nat(fst.0 * snd.0).to_lean()
 }
 
-/// Owned ScalarStruct: sum all scalar fields.
-/// ScalarStruct { obj : Nat, u8val : UInt8, u32val : UInt32, u64val : UInt64 }
-/// Lean reorders scalar fields by descending size:
-///   u64val at scalar offset 0, u32val at offset 8, u8val at offset 12
-/// Note: roundtrip tests use declaration-order offsets (0, 1, 5) which happen
-/// to roundtrip correctly because both read and write use the same offsets.
-/// But for computing actual values, we must use the real layout.
+/// Owned ScalarStruct: sum all scalar fields using LeanCtorScalar.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
-    // Lean descending-size layout: u64(0), u32(8), u8(12)
-    let ctor = ptr.as_ctor();
-    let s = ctor.scalar_base(0);
-    let u64val = ctor.get_u64(s);
-    let u32val = ctor.get_u32(s + 8) as u64;
-    let u8val = ctor.get_u8(s + 12) as u64;
+    let u64val = ptr.get_64(0);
+    let u32val = ptr.get_32(0) as u64;
+    let u8val = ptr.get_8(0) as u64;
     u64val + u32val + u8val
     // ptr drops here → lean_dec
 }
