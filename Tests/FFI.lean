@@ -70,6 +70,7 @@ opaque roundtripUSizeMixedStruct : @& USizeMixedStruct → USizeMixedStruct
 @[extern "rs_roundtrip_bool_struct"]
 opaque roundtripBoolStruct : @& BoolStruct → BoolStruct
 
+
 @[extern "rs_roundtrip_multi_u32_struct"]
 opaque roundtripMultiU32Struct : @& MultiU32Struct → MultiU32Struct
 

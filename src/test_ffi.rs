@@ -247,6 +247,7 @@ pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     ptr: LeanScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
+    assert!(ctor.num_objs() == 1, "ScalarStruct should have 1 obj field");
     let obj_nat = Nat::from_obj(&ctor.get(0));
     let s = ctor.scalar_base(0);
     let u64val = ctor.get_u64(s);
@@ -254,6 +255,10 @@ pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     let u8val = ctor.get_u8(s + 12);
 
     let out = LeanCtor::alloc(0, 1, 13);
+    assert!(
+        out.num_objs() == 1,
+        "alloc'd ScalarStruct should have 1 obj field"
+    );
     let s = out.scalar_base(0);
     out.set(0, build_nat(&obj_nat));
     out.set_u64(s, u64val);
@@ -376,8 +381,13 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
     ptr: LeanExtScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanExtScalarStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
+    assert!(
+        ctor.num_objs() == 1,
+        "ExtScalarStruct should have 1 obj field"
+    );
     let obj_nat = Nat::from_obj(&ctor.get(0));
     let s = ctor.scalar_base(0);
+    assert!(s == 8, "scalar_base(0) with 1 obj should be 8");
     let u64val = ctor.get_u64(s);
     let fval = ctor.get_f64(s + 8);
     let u32val = ctor.get_u32(s + 16);
@@ -430,6 +440,11 @@ pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
     ptr: LeanUSizeMixedStruct<LeanBorrowed<'_>>,
 ) -> LeanUSizeMixedStruct<LeanOwned> {
     let ctor = ptr.as_ctor();
+    // num_objs() should return 1 (only the Nat obj field), not counting USize
+    assert!(
+        ctor.num_objs() == 1,
+        "USizeMixedStruct should have 1 obj field"
+    );
     let obj_nat = Nat::from_obj(&ctor.get(0));
     let uval = ctor.get_usize(0);
     let s = ctor.scalar_base(1); // 1 usize field
@@ -451,7 +466,7 @@ pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
 // BoolStruct / MultiU32Struct roundtrips (batch scalar access)
 // =============================================================================
 
-/// Round-trip a BoolStruct using `scalars` / `set_scalars`.
+/// Round-trip a BoolStruct using `get_scalars` / `set_scalars` with bool.
 /// Lean layout: 1 obj field, then 3 Bool scalars at offsets 0, 1, 2.
 /// Total scalar size: 3 bytes.
 #[unsafe(no_mangle)]

@@ -903,6 +903,25 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 
 /// Typed wrapper for a Lean constructor object (tag 0–`LEAN_MAX_CTOR_TAG`).
 ///
+/// # Overall structure
+///
+/// In C, a constructor is:
+/// ```c
+/// typedef struct {
+///     lean_object   m_header;  // 8 bytes: tag in m_tag, obj count in m_other
+///     lean_object * m_objs[];  // flexible array: data area starts here
+/// } lean_ctor_object;
+/// ```
+///
+/// `m_objs` is a C flexible array member — it has no compile-time size.
+/// `lean_alloc_ctor(tag, num_objs, scalar_sz)` over-allocates so that the
+/// region starting at `m_objs` is large enough for `num_objs` pointer-width
+/// entries **plus** `scalar_sz` additional bytes for scalar fields. Despite
+/// the `lean_object *` element type, the trailing bytes are not pointers —
+/// the C API accesses them by casting to `uint8_t*` and indexing by byte
+/// offset. `lean_ctor_obj_cptr` returns `&m_objs[0]`; all offsets in the
+/// accessor API are relative to this address.
+///
 /// # Constructor field kinds
 ///
 /// Lean constructor fields are either:
@@ -913,19 +932,46 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 /// - **Scalar fields**: values stored inline as their unboxed C types
 ///   (`uint8_t`, `uint32_t`, `double`, etc.) rather than as `lean_object*`.
 ///   For example, `Bool` is stored as an unboxed `uint8_t` when it appears
-///   directly in a constructor, but as a boxed `lean_object*` in polymorphic
-///   contexts like `Array Bool`.
+///   directly in a `lean_ctor_object`, but
+///   as a boxed `lean_object*` in polymorphic contexts like `Array Bool`.
 ///
 /// # Data area layout
 ///
-/// After the 8-byte header, a constructor's data area begins with a contiguous
-/// array of pointer-width entries accessed via `lean_ctor_obj_cptr`. A single
-/// pointer-width entry in this array is called a **slot**. The full layout is:
+/// **Important:** Lean reorders fields by kind and size, so the memory layout
+/// may differ from the declaration order in Lean source. The data area
+/// (accessed via `lean_ctor_obj_cptr`) is laid out as three regions, following
+/// the terminology from the
+/// [Lean reference manual](https://lean-lang.org/doc/reference/latest/):
 ///
-/// 1. Object field slots (one `lean_object*` per field)
-/// 2. `USize` slots (one `usize` per field)
-/// 3. Fixed-size scalar bytes, sorted by descending size
+/// 1. **Object fields** — pointer-width `lean_object*` entries, one per field
+///    ("fields of the first kind")
+/// 2. **`USize` fields** — pointer-width `usize` entries, one per field
+///    ("fields of the second kind"); together with object fields these form
+///    a contiguous array of pointer-width entries
+/// 3. **Fixed-size scalar fields** — laid out in descending size order
 ///    (u64/f64, u32/f32, u16, u8/bool)
+///
+/// For example, a Lean structure declared as:
+/// ```text
+/// structure Foo where
+///   name : String     -- object field
+///   flag : Bool       -- scalar (u8)
+///   count : UInt64    -- scalar (u64)
+///   size : USize      -- usize field
+/// ```
+/// is reordered and laid out as (assuming 64-bit pointers):
+/// ```text
+/// lean_ctor_obj_cptr ──>
+///   byte 0..7:   name  (lean_object*)   ← m_objs[0], object field
+///   byte 8..15:  size  (usize)          ← m_objs[1], USize field
+///   byte 16..23: count (u64)            ← scalar field
+///   byte 24:     flag  (u8)             ← scalar field
+/// ```
+/// `lean_alloc_ctor(tag, num_objs=1, scalar_sz=9)` allocates enough space
+/// for the header, 1 object pointer, and 9 scalar bytes (8 for the USize
+/// entry + 8 for the u64 + 1 for the u8). The scalar fields live past the
+/// end of the pointer-width entries; the C API accesses them by casting
+/// `lean_ctor_obj_cptr` to `uint8_t*` and indexing by byte offset.
 ///
 /// # Offset conventions
 ///
@@ -933,17 +979,20 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 /// an **absolute byte offset** from `lean_ctor_obj_cptr` — the same convention
 /// as the Lean C API functions `lean_ctor_get_uint8`, `lean_ctor_set_uint32`,
 /// etc. Use [`scalar_base`](Self::scalar_base) to compute where the scalar
-/// area starts:
+/// fields start. Reading `Foo` from the example above:
 ///
 /// ```ignore
-/// let base = ctor.scalar_base(0); // 0 USize fields; obj count from header
-/// let x = ctor.get_u64(base + 0);
-/// let y = ctor.get_u32(base + 8);
+/// let name = ctor.get(0);                // object field
+/// let size = ctor.get_usize(0);          // first USize field
+/// let base = ctor.scalar_base(1);        // 1 USize field
+/// let count = ctor.get_u64(base + 0);    // first scalar
+/// let flag = ctor.get_bool(base + 8);    // next scalar
 /// ```
 ///
-/// For `usize`, the accessor takes a 0-based **slot index**. `USize` slots sit
-/// right after object field slots; the header-derived object count is added
-/// internally, so `get_usize(0)` reads the first `USize` field.
+/// For `usize`, the accessor indexes into the pointer-width entry array
+/// described above. The index is relative to the first `USize` entry;
+/// the object field count is read from the header and added internally, so
+/// `get_usize(0)` reads the first `USize` field.
 #[repr(transparent)]
 pub struct LeanCtor<R: LeanRef>(R);
 
@@ -1027,12 +1076,15 @@ impl<R: LeanRef> LeanCtor<R> {
     pub fn get_f32(&self, offset: usize) -> f32 {
         unsafe { include::lean_ctor_get_float32(self.0.as_raw(), to_u32(offset)) }
     }
-    /// Read a `usize` at the given slot index (0-based, relative to the first
-    /// `USize` slot after object fields). The object field count is read from
-    /// the header and added internally.
-    pub fn get_usize(&self, slot: usize) -> usize {
-        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), to_u32(self.num_objs() + slot)) }
+    /// Read a `USize` field. `USize` fields occupy pointer-width entries in
+    /// the data area right after object fields. `index` is relative to
+    /// the first `USize` entry; the object field count is read from the header
+    /// and added internally.
+    pub fn get_usize(&self, index: usize) -> usize {
+        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), to_u32(self.num_objs() + index)) }
     }
+    /// Read a single `Bool` scalar field (`uint8_t`).
+    /// Returns `true` if the byte is non-zero.
     pub fn get_bool(&self, offset: usize) -> bool {
         self.get_u8(offset) != 0
     }
@@ -1041,14 +1093,10 @@ impl<R: LeanRef> LeanCtor<R> {
     ///
     /// `offset` is an absolute byte offset from `lean_ctor_obj_cptr` for
     /// fixed-size scalars (use [`scalar_base`](Self::scalar_base) to compute
-    /// it), or a slot index for `usize`.
+    /// it), or an index into the pointer-width `USize` entries for
+    /// `usize`.
     pub fn get_scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize) -> [T; N] {
         std::array::from_fn(|i| T::ctor_get(self, offset + i * T::OFFSET))
-    }
-
-    /// Convenience alias for `get_scalars::<N, bool>`.
-    pub fn get_bools<const N: usize>(&self, offset: usize) -> [bool; N] {
-        self.get_scalars(offset)
     }
 }
 
@@ -1125,14 +1173,16 @@ impl LeanCtor<LeanOwned> {
             include::lean_ctor_set_float32(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    /// Set a `usize` at the given slot index (0-based, relative to the first
-    /// `USize` slot after object fields). The object field count is read from
-    /// the header and added internally.
-    pub fn set_usize(&self, slot: usize, val: usize) {
+    /// Set a `USize` field. `USize` fields occupy pointer-width entries in
+    /// the data area right after object fields. `index` is relative to
+    /// the first `USize` entry; the object field count is read from the header
+    /// and added internally.
+    pub fn set_usize(&self, index: usize, val: usize) {
         unsafe {
-            include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + slot), val);
+            include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + index), val);
         }
     }
+    /// Write a single `Bool` scalar field (`uint8_t`, 0 or 1).
     pub fn set_bool(&self, offset: usize, val: bool) {
         self.set_u8(offset, val as u8);
     }
@@ -1141,17 +1191,13 @@ impl LeanCtor<LeanOwned> {
     ///
     /// `offset` is an absolute byte offset from `lean_ctor_obj_cptr` for
     /// fixed-size scalars (use [`scalar_base`](LeanCtor::scalar_base) to
-    /// compute it), or a slot index for `usize`.
+    /// compute it), or a `USize` field index for `usize`.
     pub fn set_scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize, vals: [T; N]) {
         for (i, val) in vals.into_iter().enumerate() {
             T::ctor_set(self, offset + i * T::OFFSET, val);
         }
     }
 
-    /// Convenience alias for `set_scalars::<N, bool>`.
-    pub fn set_bools<const N: usize>(&self, offset: usize, vals: [bool; N]) {
-        self.set_scalars(offset, vals);
-    }
 }
 
 impl From<LeanCtor<LeanOwned>> for LeanOwned {
@@ -1173,7 +1219,8 @@ impl From<LeanCtor<LeanOwned>> for LeanOwned {
 /// See [`LeanCtor`] for the full data area layout and offset conventions.
 pub trait LeanCtorScalar: Copy {
     /// Distance between consecutive fields of this type:
-    /// `size_of::<Self>()` bytes for fixed-size scalars, or 1 slot for `usize`.
+    /// `size_of::<Self>()` bytes for fixed-size scalars, or 1 for `usize`
+    /// (indexed by pointer-width entry).
     const OFFSET: usize;
 
     /// Read one scalar field at `offset`.
@@ -1254,7 +1301,7 @@ impl LeanCtorScalar for f64 {
 }
 
 impl LeanCtorScalar for usize {
-    // USize fields are indexed by slot, so offset is 1 slot.
+    // USize fields are pointer-width entries accessed by index, so offset is 1.
     const OFFSET: usize = 1;
     fn ctor_get<R: LeanRef>(ctor: &LeanCtor<R>, offset: usize) -> Self {
         ctor.get_usize(offset)
