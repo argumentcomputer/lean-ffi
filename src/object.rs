@@ -1042,13 +1042,13 @@ impl<R: LeanRef> LeanCtor<R> {
     /// `offset` is an absolute byte offset from `lean_ctor_obj_cptr` for
     /// fixed-size scalars (use [`scalar_base`](Self::scalar_base) to compute
     /// it), or a slot index for `usize`.
-    pub fn scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize) -> [T; N] {
+    pub fn get_scalars<const N: usize, T: LeanCtorScalar>(&self, offset: usize) -> [T; N] {
         std::array::from_fn(|i| T::ctor_get(self, offset + i * T::OFFSET))
     }
 
-    /// Convenience alias for `scalars::<N, bool>`.
+    /// Convenience alias for `get_scalars::<N, bool>`.
     pub fn get_bools<const N: usize>(&self, offset: usize) -> [bool; N] {
-        self.scalars(offset)
+        self.get_scalars(offset)
     }
 }
 

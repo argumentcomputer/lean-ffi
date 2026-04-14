@@ -434,7 +434,7 @@ pub(crate) extern "C" fn rs_roundtrip_bool_struct(
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
     let s = ctor.scalar_base(0);
-    let [b1, b2, b3] = ctor.scalars::<3, bool>(s);
+    let [b1, b2, b3] = ctor.get_scalars::<3, bool>(s);
 
     let out = LeanCtor::alloc(0, 1, 3);
     let s = out.scalar_base(0);
@@ -453,7 +453,7 @@ pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
     let ctor = ptr.as_ctor();
     let obj_nat = Nat::from_obj(&ctor.get(0));
     let s = ctor.scalar_base(0);
-    let [a, b, c] = ctor.scalars::<3, u32>(s);
+    let [a, b, c] = ctor.get_scalars::<3, u32>(s);
 
     let out = LeanCtor::alloc(0, 1, 12);
     let s = out.scalar_base(0);
