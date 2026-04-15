@@ -34,11 +34,11 @@ mod tags {
 use tags::*;
 
 /// Constructor tag for `IO.Error.userError`.
-const IO_ERROR_USER_ERROR_TAG: usize = 7;
+const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 
 /// Convert a `usize` to `u32` for the Lean C API, panicking on overflow.
 #[inline]
-fn to_u32(val: usize) -> u32 {
+pub fn to_u32(val: usize) -> u32 {
     u32::try_from(val).expect("value exceeds u32::MAX")
 }
 
@@ -1150,9 +1150,10 @@ impl LeanCtor<LeanOwned> {
     }
 
     /// Allocate a new constructor object.
-    pub fn alloc(tag: usize, num_objs: usize, scalar_size: usize) -> Self {
-        let obj =
-            unsafe { include::lean_alloc_ctor(to_u32(tag), to_u32(num_objs), to_u32(scalar_size)) };
+    pub fn alloc(tag: u8, num_objs: usize, scalar_size: usize) -> Self {
+        let obj = unsafe {
+            include::lean_alloc_ctor(u32::from(tag), to_u32(num_objs), to_u32(scalar_size))
+        };
         Self(LeanOwned(obj))
     }
 
@@ -1185,250 +1186,86 @@ impl From<LeanCtor<LeanOwned>> for LeanOwned {
 }
 
 // =============================================================================
-// LeanCtorScalar — trait for type-indexed scalar field access
+// LeanCtorLayout — layout metadata for structures and inductive variants
 // =============================================================================
 
-/// Trait for type-indexed scalar field access on domain types.
+/// Layout of a single `lean_ctor_object`: its tag and field counts per
+/// scalar type size. Describes both structures (one layout, tag 0) and one
+/// variant of a multi-variant inductive (tag N).
 ///
-/// Implement this on a `lean_domain_type!` wrapper to get `get_*`/`set_*`
-/// methods that index by size tier rather than byte offset. Works for
-/// structures and for specific variants of multi-constructor inductives.
-/// Use [`impl_ctor_scalar!`] to reduce boilerplate:
+/// Scalar fields are ordered after object/USize fields by **descending size**
+/// (8B, 4B, 2B, 1B). Within a given size, Lean preserves declaration order.
 ///
-/// ```ignore
-/// lean_domain_type! { LeanFoo; }
-/// impl_ctor_scalar!(LeanFoo { NUM_OBJ = 1, NUM_USIZE = 1, NUM_64 = 1 });
-///
-/// let count = foo.get_num_64(0);
-/// let flag = foo.get_num_8(0);
-/// ```
-///
-/// Within each size tier, Lean preserves **declaration order** — it does not
-/// sub-sort by type. Each tier has one getter/setter pair that returns the
-/// natural integer type for that width. Use `f64::from_bits()` /
-/// `f64::to_bits()` for float fields, and `val != 0` for bool fields.
-pub trait LeanCtorScalar {
-    /// Constructor tag (0 for most structures).
-    const TAG: usize = 0;
-    /// Number of object fields (`lean_object*`).
-    const NUM_OBJ: usize = 0;
-    /// Number of `USize` fields (pointer-width, after object fields).
-    const NUM_USIZE: usize = 0;
-    /// Number of 8-byte scalar fields (`UInt64` + `Float`).
-    const NUM_64: usize = 0;
-    /// Number of 4-byte scalar fields (`UInt32` + `Float32`).
-    const NUM_32: usize = 0;
-    /// Number of 2-byte scalar fields (`UInt16`).
-    const NUM_16: usize = 0;
-    /// Number of 1-byte scalar fields (`UInt8` + `Bool`).
-    const NUM_8: usize = 0;
-
-    /// Access the underlying constructor. Provided automatically by
-    /// [`impl_ctor_scalar!`] — users should not need to implement this.
-    fn as_ctor(&self) -> LeanCtor<LeanBorrowed<'_>>;
-
-    /// Set the `i`-th object field. Takes ownership of `val`.
-    fn set_obj(&self, i: usize, val: impl Into<LeanOwned>) {
-        assert!(
-            i < Self::NUM_OBJ,
-            "object field index {i} out of bounds (NUM_OBJ = {})",
-            Self::NUM_OBJ
-        );
-        let val: LeanOwned = val.into();
-        unsafe { include::lean_ctor_set(self.as_ctor().as_raw(), to_u32(i), val.into_raw()) }
-    }
-
-    // -- USize fields --
-
-    fn get_usize(&self, i: usize) -> usize {
-        assert!(
-            i < Self::NUM_USIZE,
-            "USize field index {i} out of bounds (NUM_USIZE = {})",
-            Self::NUM_USIZE
-        );
-        self.as_ctor().get_usize(i)
-    }
-    fn set_usize(&self, i: usize, val: usize) {
-        assert!(
-            i < Self::NUM_USIZE,
-            "USize field index {i} out of bounds (NUM_USIZE = {})",
-            Self::NUM_USIZE
-        );
-        self.as_ctor().set_usize(i, val)
-    }
-
-    // -- 8-byte tier (UInt64 / Float) --
-
-    fn get_num_64(&self, i: usize) -> u64 {
-        assert!(
-            i < Self::NUM_64,
-            "64-bit field index {i} out of bounds (NUM_64 = {})",
-            Self::NUM_64
-        );
-        self.as_ctor()
-            .get_u64(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + i * 8)
-    }
-    fn set_num_64(&self, i: usize, val: u64) {
-        assert!(
-            i < Self::NUM_64,
-            "64-bit field index {i} out of bounds (NUM_64 = {})",
-            Self::NUM_64
-        );
-        self.as_ctor()
-            .set_u64(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + i * 8, val)
-    }
-
-    // -- 4-byte tier (UInt32 / Float32) --
-
-    fn get_num_32(&self, i: usize) -> u32 {
-        assert!(
-            i < Self::NUM_32,
-            "32-bit field index {i} out of bounds (NUM_32 = {})",
-            Self::NUM_32
-        );
-        self.as_ctor()
-            .get_u32(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + Self::NUM_64 * 8 + i * 4)
-    }
-    fn set_num_32(&self, i: usize, val: u32) {
-        assert!(
-            i < Self::NUM_32,
-            "32-bit field index {i} out of bounds (NUM_32 = {})",
-            Self::NUM_32
-        );
-        self.as_ctor().set_u32(
-            scalar_base(&self.as_ctor(), Self::NUM_USIZE) + Self::NUM_64 * 8 + i * 4,
-            val,
-        )
-    }
-
-    // -- 2-byte tier (UInt16) --
-
-    fn get_num_16(&self, i: usize) -> u16 {
-        assert!(
-            i < Self::NUM_16,
-            "16-bit field index {i} out of bounds (NUM_16 = {})",
-            Self::NUM_16
-        );
-        self.as_ctor().get_u16(
-            scalar_base(&self.as_ctor(), Self::NUM_USIZE)
-                + Self::NUM_64 * 8
-                + Self::NUM_32 * 4
-                + i * 2,
-        )
-    }
-    fn set_num_16(&self, i: usize, val: u16) {
-        assert!(
-            i < Self::NUM_16,
-            "16-bit field index {i} out of bounds (NUM_16 = {})",
-            Self::NUM_16
-        );
-        self.as_ctor().set_u16(
-            scalar_base(&self.as_ctor(), Self::NUM_USIZE)
-                + Self::NUM_64 * 8
-                + Self::NUM_32 * 4
-                + i * 2,
-            val,
-        )
-    }
-
-    // -- 1-byte tier (UInt8 / Bool) --
-
-    fn get_num_8(&self, i: usize) -> u8 {
-        assert!(
-            i < Self::NUM_8,
-            "8-bit field index {i} out of bounds (NUM_8 = {})",
-            Self::NUM_8
-        );
-        self.as_ctor().get_u8(
-            scalar_base(&self.as_ctor(), Self::NUM_USIZE)
-                + Self::NUM_64 * 8
-                + Self::NUM_32 * 4
-                + Self::NUM_16 * 2
-                + i,
-        )
-    }
-    fn set_num_8(&self, i: usize, val: u8) {
-        assert!(
-            i < Self::NUM_8,
-            "8-bit field index {i} out of bounds (NUM_8 = {})",
-            Self::NUM_8
-        );
-        self.as_ctor().set_u8(
-            scalar_base(&self.as_ctor(), Self::NUM_USIZE)
-                + Self::NUM_64 * 8
-                + Self::NUM_32 * 4
-                + Self::NUM_16 * 2
-                + i,
-            val,
-        )
-    }
+/// Use [`lean_ctor!`](crate::lean_ctor) to attach this layout to a structure
+/// or to a per-variant wrapper type; use [`lean_inductive!`](crate::lean_inductive)
+/// to wire variant wrappers to the top-level inductive type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SingleCtorLayout {
+    /// Constructor tag. Lean's `LEAN_MAX_CTOR_TAG` fits in `u8`.
+    pub tag: u8,
+    pub num_obj: usize,
+    pub num_usize: usize,
+    pub num_64: usize,
+    pub num_32: usize,
+    pub num_16: usize,
+    pub num_8: usize,
 }
 
-/// Byte offset from `lean_ctor_obj_cptr` where fixed-size scalar fields begin.
-///
-/// Use this for multi-constructor inductives where [`LeanCtorScalar`] doesn't
-/// apply because the scalar layout varies per constructor tag. `num_usize` is
-/// the number of `USize` fields (0 for most types).
-#[inline]
-pub fn scalar_base(ctor: &LeanCtor<impl LeanRef>, num_usize: usize) -> usize {
-    (ctor.num_objs() + num_usize) * size_of::<usize>()
-}
-
-/// Implement [`LeanCtorScalar`] for a `lean_domain_type!` type and generate
-/// an `alloc()` constructor on the owned variant.
-///
-/// Works for structures (tag 0) and specific variants of multi-constructor
-/// inductives (set `TAG` to the variant's constructor tag).
-///
-/// ```ignore
-/// // Structure (tag defaults to 0):
-/// impl_ctor_scalar!(LeanFoo { NUM_OBJ = 1, NUM_64 = 2 });
-///
-/// // For an inductive like:
-/// //   inductive CompareResult
-/// //     | match
-/// //     | mismatch (a b c : UInt64)
-/// //     | notFound
-/// // where the `mismatch` variant has tag 1 and 3 u64 fields:
-/// impl_ctor_scalar!(LeanMismatch { TAG = 1, NUM_64 = 3 });
-///
-/// let foo = LeanFoo::alloc();
-/// foo.set_obj(0, some_val);
-/// foo.set_num_64(0, 42);
-///
-/// let m = LeanMismatch::alloc();
-/// m.set_num_64(0, lean_size);
-/// m.set_num_64(1, rust_size);
-/// m.set_num_64(2, first_diff);
-/// ```
-#[macro_export]
-macro_rules! impl_ctor_scalar {
-    ($ty:ident { $($const:ident = $val:expr),* $(,)? }) => {
-        impl<R: $crate::object::LeanRef> $crate::object::LeanCtorScalar for $ty<R> {
-            $(const $const: usize = $val;)*
-            fn as_ctor(&self) -> $crate::object::LeanCtor<$crate::object::LeanBorrowed<'_>> {
-                self.as_ctor()
-            }
-        }
-
-        impl $ty<$crate::object::LeanOwned> {
-            /// Allocate a new constructor with the layout defined by [`LeanCtorScalar`].
-            pub fn alloc() -> Self {
-                use $crate::object::LeanCtorScalar;
-                let scalar_size =
-                    <Self as LeanCtorScalar>::NUM_USIZE * std::mem::size_of::<usize>()
-                    + <Self as LeanCtorScalar>::NUM_64 * 8
-                    + <Self as LeanCtorScalar>::NUM_32 * 4
-                    + <Self as LeanCtorScalar>::NUM_16 * 2
-                    + <Self as LeanCtorScalar>::NUM_8;
-                Self::new($crate::object::LeanCtor::alloc(
-                    <Self as LeanCtorScalar>::TAG,
-                    <Self as LeanCtorScalar>::NUM_OBJ,
-                    scalar_size,
-                ).into())
-            }
-        }
+impl SingleCtorLayout {
+    pub const ZERO: Self = Self {
+        tag: 0,
+        num_obj: 0,
+        num_usize: 0,
+        num_64: 0,
+        num_32: 0,
+        num_16: 0,
+        num_8: 0,
     };
+
+    /// Total byte size of the scalar region (USize + 64 + 32 + 16 + 8 groups).
+    #[inline]
+    pub const fn scalar_size(&self) -> usize {
+        self.num_usize * size_of::<usize>()
+            + self.num_64 * 8
+            + self.num_32 * 4
+            + self.num_16 * 2
+            + self.num_8
+    }
+
+    /// Byte offset from `lean_ctor_obj_cptr` where fixed-size scalar fields begin
+    /// (after object fields and USize fields).
+    #[inline]
+    pub const fn scalar_base(&self) -> usize {
+        (self.num_obj + self.num_usize) * size_of::<usize>()
+    }
+
+    #[inline]
+    pub const fn offset_64(&self, i: usize) -> usize {
+        self.scalar_base() + i * 8
+    }
+    #[inline]
+    pub const fn offset_32(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + i * 4
+    }
+    #[inline]
+    pub const fn offset_16(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + self.num_32 * 4 + i * 2
+    }
+    #[inline]
+    pub const fn offset_8(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + self.num_32 * 4 + self.num_16 * 2 + i
+    }
+}
+
+/// Declarative layout metadata for ctor-backed domain types.
+///
+/// - Structures and per-variant wrappers implement `LeanCtorLayout<1>` via
+///   [`lean_ctor!`](crate::lean_ctor) (the wrapper represents a single
+///   `lean_ctor_object` layout).
+/// - Top-level multi-variant inductives implement `LeanCtorLayout<N>` where
+///   `N` is the variant count, via [`lean_inductive!`](crate::lean_inductive).
+pub trait LeanCtorLayout<const N: usize> {
+    const LAYOUTS: [SingleCtorLayout; N];
 }
 
 // =============================================================================
@@ -2233,5 +2070,118 @@ impl LeanRef for LeanShared {
     #[inline]
     fn as_raw(&self) -> *mut include::lean_object {
         self.0.as_raw()
+    }
+}
+
+// =============================================================================
+// Unit tests for layout math (no Lean runtime needed)
+// =============================================================================
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn zero_layout_has_zero_size() {
+        let z = SingleCtorLayout::ZERO;
+        assert_eq!(z.tag, 0);
+        assert_eq!(z.num_obj, 0);
+        assert_eq!(z.scalar_size(), 0);
+        assert_eq!(z.scalar_base(), 0);
+    }
+
+    #[test]
+    fn scalar_size_sums_all_groups() {
+        let l = SingleCtorLayout {
+            tag: 0,
+            num_obj: 0,
+            num_usize: 2,
+            num_64: 3,
+            num_32: 4,
+            num_16: 5,
+            num_8: 7,
+        };
+        let expected = 2 * size_of::<usize>() + 3 * 8 + 4 * 4 + 5 * 2 + 7;
+        assert_eq!(l.scalar_size(), expected);
+    }
+
+    #[test]
+    fn scalar_base_skips_obj_and_usize() {
+        let l = SingleCtorLayout {
+            num_obj: 3,
+            num_usize: 2,
+            ..SingleCtorLayout::ZERO
+        };
+        // 3 obj slots + 2 usize slots, all pointer-width
+        assert_eq!(l.scalar_base(), 5 * size_of::<usize>());
+    }
+
+    #[test]
+    fn offsets_stack_by_descending_size() {
+        let l = SingleCtorLayout {
+            num_obj: 1,
+            num_usize: 1,
+            num_64: 2,
+            num_32: 2,
+            num_16: 1,
+            num_8: 3,
+            tag: 0,
+        };
+        let base = l.scalar_base();
+        // 64-bit group starts at `base`.
+        assert_eq!(l.offset_64(0), base);
+        assert_eq!(l.offset_64(1), base + 8);
+        // 32-bit group starts after 2 u64s.
+        assert_eq!(l.offset_32(0), base + 16);
+        assert_eq!(l.offset_32(1), base + 16 + 4);
+        // 16-bit group starts after 2 u64s + 2 u32s.
+        assert_eq!(l.offset_16(0), base + 16 + 8);
+        // 8-bit group starts after 2 u64s + 2 u32s + 1 u16.
+        assert_eq!(l.offset_8(0), base + 16 + 8 + 2);
+        assert_eq!(l.offset_8(2), base + 16 + 8 + 2 + 2);
+    }
+
+    #[test]
+    fn offsets_handle_empty_groups() {
+        // u64 + u8, skipping u32/u16 entirely.
+        let l = SingleCtorLayout {
+            num_64: 1,
+            num_8: 1,
+            ..SingleCtorLayout::ZERO
+        };
+        assert_eq!(l.offset_64(0), 0);
+        // u8 sits immediately after the u64: 32/16 groups are zero-width.
+        assert_eq!(l.offset_8(0), 8);
+        assert_eq!(l.scalar_size(), 8 + 1);
+    }
+
+    #[test]
+    fn layout_is_copy_in_const_context() {
+        // Confirms SingleCtorLayout can be read through LeanCtorLayout in const
+        // code — this is what the generated accessor methods rely on.
+        struct Marker;
+        impl LeanCtorLayout<2> for Marker {
+            const LAYOUTS: [SingleCtorLayout; 2] = [
+                SingleCtorLayout {
+                    tag: 0,
+                    num_obj: 1,
+                    ..SingleCtorLayout::ZERO
+                },
+                SingleCtorLayout {
+                    tag: 1,
+                    num_64: 2,
+                    ..SingleCtorLayout::ZERO
+                },
+            ];
+        }
+        const L0: SingleCtorLayout = <Marker as LeanCtorLayout<2>>::LAYOUTS[0];
+        const L1: SingleCtorLayout = <Marker as LeanCtorLayout<2>>::LAYOUTS[1];
+        const OFF: usize = L1.offset_64(1);
+
+        assert_eq!(L0.tag, 0);
+        assert_eq!(L0.num_obj, 1);
+        assert_eq!(L1.tag, 1);
+        assert_eq!(L1.num_64, 2);
+        assert_eq!(OFF, 8);
     }
 }
