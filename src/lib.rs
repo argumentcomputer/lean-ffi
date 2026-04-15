@@ -105,6 +105,14 @@ macro_rules! lean_domain_type {
       }
     }
 
+    impl<'a> $name<$crate::object::LeanBorrowed<'a>> {
+      /// Wrap a borrowed `LeanCtor` as this domain type.
+      #[inline]
+      pub fn from_ctor(ctor: $crate::object::LeanCtor<$crate::object::LeanBorrowed<'a>>) -> Self {
+          Self(unsafe { $crate::object::LeanBorrowed::from_raw(ctor.as_raw()) })
+      }
+    }
+
     impl $name<$crate::object::LeanOwned> {
       /// Wrap an owned `LeanOwned` value.
       #[inline]

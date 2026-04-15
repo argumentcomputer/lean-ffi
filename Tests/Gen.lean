@@ -154,6 +154,30 @@ structure MultiU32Struct where
   c : UInt32
 deriving Repr, BEq, DecidableEq, Inhabited
 
+/-- Inductive with multiple constructors for testing non-zero TAG.
+    - empty: tag 0, no fields (scalar representation)
+    - withScalars: tag 1, 2 u64 fields
+    - withMixed: tag 2, 1 obj field + 1 u32 + 1 bool -/
+inductive TestInductive
+  | empty
+  | withScalars (a b : UInt64)
+  | withMixed (obj : Nat) (x : UInt32) (flag : Bool)
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure containing another structure as an object field.
+    Tests nested structure access via the trait API. -/
+structure Outer where
+  inner : ScalarStruct
+  label : String
+  count : UInt64
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure containing an inductive as an object field. -/
+structure InductiveHolder where
+  value : TestInductive
+  tag_copy : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
 /-! ## Shrinkable instances -/
 
 instance : Shrinkable Nat where

@@ -74,6 +74,15 @@ opaque roundtripBoolStruct : @& BoolStruct → BoolStruct
 @[extern "rs_roundtrip_multi_u32_struct"]
 opaque roundtripMultiU32Struct : @& MultiU32Struct → MultiU32Struct
 
+@[extern "rs_roundtrip_test_inductive"]
+opaque roundtripTestInductive : @& TestInductive → TestInductive
+
+@[extern "rs_roundtrip_outer"]
+opaque roundtripOuter : @& Outer → Outer
+
+@[extern "rs_roundtrip_inductive_holder"]
+opaque roundtripInductiveHolder : @& InductiveHolder → InductiveHolder
+
 @[extern "rs_roundtrip_float"]
 opaque roundtripFloat : Float → Float
 
@@ -378,6 +387,19 @@ def borrowedRoundtripTests : TestSeq :=
   test "MultiU32Struct zeros" (roundtripMultiU32Struct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
   test "MultiU32Struct max" (roundtripMultiU32Struct ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩ == ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩) ++
   test "MultiU32Struct mixed" (roundtripMultiU32Struct ⟨1, 42, 0, 99⟩ == ⟨1, 42, 0, 99⟩) ++
+  -- TestInductive: multi-constructor inductive with non-zero tags
+  test "TestInductive empty" (roundtripTestInductive .empty == .empty) ++
+  test "TestInductive withScalars" (roundtripTestInductive (.withScalars 42 99) == .withScalars 42 99) ++
+  test "TestInductive withScalars max" (roundtripTestInductive (.withScalars 0xFFFFFFFFFFFFFFFF 0) == .withScalars 0xFFFFFFFFFFFFFFFF 0) ++
+  test "TestInductive withMixed" (roundtripTestInductive (.withMixed 7 0xFFFFFFFF true) == .withMixed 7 0xFFFFFFFF true) ++
+  test "TestInductive withMixed false" (roundtripTestInductive (.withMixed 0 0 false) == .withMixed 0 0 false) ++
+  -- Outer: structure containing another structure
+  test "Outer zeros" (roundtripOuter ⟨⟨0, 0, 0, 0⟩, "", 0⟩ == ⟨⟨0, 0, 0, 0⟩, "", 0⟩) ++
+  test "Outer mixed" (roundtripOuter ⟨⟨42, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩, "hello", 99⟩ == ⟨⟨42, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩, "hello", 99⟩) ++
+  -- InductiveHolder: structure containing an inductive
+  test "InductiveHolder empty" (roundtripInductiveHolder ⟨.empty, 0⟩ == ⟨.empty, 0⟩) ++
+  test "InductiveHolder withScalars" (roundtripInductiveHolder ⟨.withScalars 10 20, 42⟩ == ⟨.withScalars 10 20, 42⟩) ++
+  test "InductiveHolder withMixed" (roundtripInductiveHolder ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩ == ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩) ++
   test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
   test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:") ++
   test "External large u64" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++

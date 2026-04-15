@@ -44,20 +44,38 @@ crate::lean_domain_type! {
     LeanBoolStruct;
     /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
     LeanMultiU32Struct;
+    /// Lean `TestInductive` — the full inductive (for tag dispatch)
+    LeanTestInductive;
+    /// Lean `TestInductive.withScalars` variant (tag 1, 2 u64 fields)
+    LeanTestInductiveWithScalars;
+    /// Lean `TestInductive.withMixed` variant (tag 2, 1 obj + 1 u32 + 1 bool)
+    LeanTestInductiveWithMixed;
+    /// Lean `Outer` — structure containing ScalarStruct + String + UInt64
+    LeanOuter;
+    /// Lean `InductiveHolder` — structure containing TestInductive + UInt32
+    LeanInductiveHolder;
 }
 
 // ScalarStruct: 1 obj, scalars: u64, u32, u8
-crate::impl_ctor_scalar!(LeanScalarStruct { NUM_8B = 1, NUM_4B = 1 });
+crate::impl_ctor_scalar!(LeanScalarStruct { NUM_OBJ = 1, NUM_64 = 1, NUM_32 = 1, NUM_8 = 1 });
 // ExtScalarStruct: 1 obj, scalars: u64, f64, u32, f32, u16, u8
-crate::impl_ctor_scalar!(LeanExtScalarStruct { NUM_8B = 2, NUM_4B = 2, NUM_2B = 1 });
+crate::impl_ctor_scalar!(LeanExtScalarStruct { NUM_OBJ = 1, NUM_64 = 2, NUM_32 = 2, NUM_16 = 1, NUM_8 = 1 });
 // USizeStruct: 1 obj, 1 usize, u8
-crate::impl_ctor_scalar!(LeanUSizeStruct { NUM_USIZE = 1 });
+crate::impl_ctor_scalar!(LeanUSizeStruct { NUM_OBJ = 1, NUM_USIZE = 1, NUM_8 = 1 });
 // USizeMixedStruct: 1 obj, 1 usize, scalars: u64, u32, bool
-crate::impl_ctor_scalar!(LeanUSizeMixedStruct { NUM_USIZE = 1, NUM_8B = 1, NUM_4B = 1 });
+crate::impl_ctor_scalar!(LeanUSizeMixedStruct { NUM_OBJ = 1, NUM_USIZE = 1, NUM_64 = 1, NUM_32 = 1, NUM_8 = 1 });
 // BoolStruct: 1 obj, 3 bools
-crate::impl_ctor_scalar!(LeanBoolStruct {});
+crate::impl_ctor_scalar!(LeanBoolStruct { NUM_OBJ = 1, NUM_8 = 3 });
 // MultiU32Struct: 1 obj, 3 u32s
-crate::impl_ctor_scalar!(LeanMultiU32Struct { NUM_4B = 3 });
+crate::impl_ctor_scalar!(LeanMultiU32Struct { NUM_OBJ = 1, NUM_32 = 3 });
+// Outer: 2 obj fields (inner, label), 1 u64 scalar
+crate::impl_ctor_scalar!(LeanOuter { NUM_OBJ = 2, NUM_64 = 1 });
+// InductiveHolder: 1 obj field (value), 1 u32 scalar
+crate::impl_ctor_scalar!(LeanInductiveHolder { NUM_OBJ = 1, NUM_32 = 1 });
+// TestInductive.withScalars: tag 1, 0 obj fields, 2 u64 scalars
+crate::impl_ctor_scalar!(LeanTestInductiveWithScalars { TAG = 1, NUM_64 = 2 });
+// TestInductive.withMixed: tag 2, 1 obj field, 1 u32 + 1 bool
+crate::impl_ctor_scalar!(LeanTestInductiveWithMixed { TAG = 2, NUM_OBJ = 1, NUM_32 = 1, NUM_8 = 1 });
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
 fn build_nat(n: &Nat) -> LeanOwned {
@@ -264,16 +282,15 @@ pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     ptr: LeanScalarStruct<LeanBorrowed<'_>>,
 ) -> LeanScalarStruct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
-    let u64val = ptr.get_64(0);
-    let u32val = ptr.get_32(0);
-    let u8val = ptr.get_8(0);
+    let u64val = ptr.get_num_64(0);
+    let u32val = ptr.get_num_32(0);
+    let u8val = ptr.get_num_8(0);
 
-    let ctor = LeanCtor::alloc(0, 1, 13);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanScalarStruct::new(ctor.into());
-    out.set_64(0, u64val);
-    out.set_32(0, u32val);
-    out.set_8(0, u8val);
+    let out = LeanScalarStruct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
+    out.set_num_64(0, u64val);
+    out.set_num_32(0, u32val);
+    out.set_num_8(0, u8val);
     out
 }
 
@@ -392,23 +409,22 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
 ) -> LeanExtScalarStruct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
     // 8-byte tier: u64 at index 0, f64 at index 1
-    let u64val = ptr.get_64(0);
-    let fval = f64::from_bits(ptr.get_64(1));
+    let u64val = ptr.get_num_64(0);
+    let fval = f64::from_bits(ptr.get_num_64(1));
     // 4-byte tier: u32 at index 0, f32 at index 1
-    let u32val = ptr.get_32(0);
-    let f32val = f32::from_bits(ptr.get_32(1));
-    let u16val = ptr.get_16(0);
-    let u8val = ptr.get_8(0);
+    let u32val = ptr.get_num_32(0);
+    let f32val = f32::from_bits(ptr.get_num_32(1));
+    let u16val = ptr.get_num_16(0);
+    let u8val = ptr.get_num_8(0);
 
-    let ctor = LeanCtor::alloc(0, 1, 27);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanExtScalarStruct::new(ctor.into());
-    out.set_64(0, u64val);
-    out.set_64(1, fval.to_bits());
-    out.set_32(0, u32val);
-    out.set_32(1, f32val.to_bits());
-    out.set_16(0, u16val);
-    out.set_8(0, u8val);
+    let out = LeanExtScalarStruct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
+    out.set_num_64(0, u64val);
+    out.set_num_64(1, fval.to_bits());
+    out.set_num_32(0, u32val);
+    out.set_num_32(1, f32val.to_bits());
+    out.set_num_16(0, u16val);
+    out.set_num_8(0, u8val);
     out
 }
 
@@ -425,13 +441,12 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
 ) -> LeanUSizeStruct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
     let uval = ptr.get_usize(0);
-    let u8val = ptr.get_8(0);
+    let u8val = ptr.get_num_8(0);
 
-    let ctor = LeanCtor::alloc(0, 1, 9);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanUSizeStruct::new(ctor.into());
+    let out = LeanUSizeStruct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
     out.set_usize(0, uval);
-    out.set_8(0, u8val);
+    out.set_num_8(0, u8val);
     out
 }
 
@@ -444,17 +459,16 @@ pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
 ) -> LeanUSizeMixedStruct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
     let uval = ptr.get_usize(0);
-    let u64val = ptr.get_64(0);
-    let u32val = ptr.get_32(0);
-    let bval = ptr.get_8(0) != 0;
+    let u64val = ptr.get_num_64(0);
+    let u32val = ptr.get_num_32(0);
+    let bval = ptr.get_num_8(0) != 0;
 
-    let ctor = LeanCtor::alloc(0, 1, 21);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanUSizeMixedStruct::new(ctor.into());
+    let out = LeanUSizeMixedStruct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
     out.set_usize(0, uval);
-    out.set_64(0, u64val);
-    out.set_32(0, u32val);
-    out.set_8(0, bval as u8);
+    out.set_num_64(0, u64val);
+    out.set_num_32(0, u32val);
+    out.set_num_8(0, bval as u8);
     out
 }
 
@@ -470,16 +484,15 @@ pub(crate) extern "C" fn rs_roundtrip_bool_struct(
     ptr: LeanBoolStruct<LeanBorrowed<'_>>,
 ) -> LeanBoolStruct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
-    let b1 = ptr.get_8(0);
-    let b2 = ptr.get_8(1);
-    let b3 = ptr.get_8(2);
+    let b1 = ptr.get_num_8(0);
+    let b2 = ptr.get_num_8(1);
+    let b3 = ptr.get_num_8(2);
 
-    let ctor = LeanCtor::alloc(0, 1, 3);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanBoolStruct::new(ctor.into());
-    out.set_8(0, b1);
-    out.set_8(1, b2);
-    out.set_8(2, b3);
+    let out = LeanBoolStruct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
+    out.set_num_8(0, b1);
+    out.set_num_8(1, b2);
+    out.set_num_8(2, b3);
     out
 }
 
@@ -491,16 +504,122 @@ pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
     ptr: LeanMultiU32Struct<LeanBorrowed<'_>>,
 ) -> LeanMultiU32Struct<LeanOwned> {
     let obj_nat = Nat::from_obj(&ptr.as_ctor().get(0));
-    let a = ptr.get_32(0);
-    let b = ptr.get_32(1);
-    let c = ptr.get_32(2);
+    let a = ptr.get_num_32(0);
+    let b = ptr.get_num_32(1);
+    let c = ptr.get_num_32(2);
 
-    let ctor = LeanCtor::alloc(0, 1, 12);
-    ctor.set(0, build_nat(&obj_nat));
-    let out = LeanMultiU32Struct::new(ctor.into());
-    out.set_32(0, a);
-    out.set_32(1, b);
-    out.set_32(2, c);
+    let out = LeanMultiU32Struct::alloc();
+    out.set_obj(0, build_nat(&obj_nat));
+    out.set_num_32(0, a);
+    out.set_num_32(1, b);
+    out.set_num_32(2, c);
+    out
+}
+
+// =============================================================================
+// TestInductive roundtrip (multi-constructor with non-zero tags)
+// =============================================================================
+
+/// Round-trip a TestInductive.
+/// - tag 0 (empty): no fields, scalar representation
+/// - tag 1 (withScalars): 2 u64 fields
+/// - tag 2 (withMixed): 1 obj + 1 u32 + 1 bool
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_test_inductive(
+    ptr: LeanTestInductive<LeanBorrowed<'_>>,
+) -> LeanTestInductive<LeanOwned> {
+    // Tag 0 (empty) has no fields — Lean represents as a scalar
+    if ptr.inner().is_scalar() {
+        return LeanTestInductive::new(ptr.inner().to_owned_ref());
+    }
+
+    let ctor = ptr.as_ctor();
+    match ctor.tag() {
+        1 => {
+            // withScalars: use the variant domain type
+            let src = LeanTestInductiveWithScalars::from_ctor(ctor);
+            let a = src.get_num_64(0);
+            let b = src.get_num_64(1);
+
+            let dst = LeanTestInductiveWithScalars::alloc();
+            dst.set_num_64(0, a);
+            dst.set_num_64(1, b);
+            LeanTestInductive::new(dst.into())
+        }
+        2 => {
+            // withMixed: use the variant domain type
+            let src = LeanTestInductiveWithMixed::from_ctor(ctor);
+            let obj_nat = Nat::from_obj(&src.as_ctor().get(0));
+            let x = src.get_num_32(0);
+            let flag = src.get_num_8(0);
+
+            let dst = LeanTestInductiveWithMixed::alloc();
+            dst.set_obj(0, build_nat(&obj_nat));
+            dst.set_num_32(0, x);
+            dst.set_num_8(0, flag);
+            LeanTestInductive::new(dst.into())
+        }
+        _ => unreachable!("Invalid TestInductive tag: {}", ctor.tag()),
+    }
+}
+
+// =============================================================================
+// Nested structure roundtrip
+// =============================================================================
+
+/// Round-trip an Outer (structure containing ScalarStruct + String + UInt64).
+/// Lean layout: 2 obj fields (inner : ScalarStruct, label : String), 1 u64 scalar.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_outer(
+    ptr: LeanOuter<LeanBorrowed<'_>>,
+) -> LeanOuter<LeanOwned> {
+    // Read: extract nested structure and scalar fields
+    let ctor = ptr.as_ctor();
+    let inner_ref = ctor.get(0); // ScalarStruct (object field 0)
+    let label_ref = ctor.get(1); // String (object field 1)
+    let count = ptr.get_num_64(0);
+
+    // Roundtrip the inner ScalarStruct through its own trait
+    let inner_wrapped = LeanScalarStruct(inner_ref);
+    let inner_u64 = inner_wrapped.get_num_64(0);
+    let inner_u32 = inner_wrapped.get_num_32(0);
+    let inner_u8 = inner_wrapped.get_num_8(0);
+    let inner_obj = Nat::from_obj(&inner_wrapped.as_ctor().get(0));
+
+    let new_inner = LeanScalarStruct::alloc();
+    new_inner.set_obj(0, build_nat(&inner_obj));
+    new_inner.set_num_64(0, inner_u64);
+    new_inner.set_num_32(0, inner_u32);
+    new_inner.set_num_8(0, inner_u8);
+
+    // Roundtrip the label string
+    let new_label = LeanString::new(&label_ref.as_string().to_string());
+
+    // Write: construct new Outer
+    let out = LeanOuter::alloc();
+    out.set_obj(0, new_inner);
+    out.set_obj(1, new_label);
+    out.set_num_64(0, count);
+    out
+}
+
+/// Round-trip an InductiveHolder (structure containing TestInductive + UInt32).
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_inductive_holder(
+    ptr: LeanInductiveHolder<LeanBorrowed<'_>>,
+) -> LeanInductiveHolder<LeanOwned> {
+    // Read the inductive value (object field 0) and scalar
+    let ctor = ptr.as_ctor();
+    let value_ref = ctor.get(0);
+    let tag_copy = ptr.get_num_32(0);
+
+    // Roundtrip the inner TestInductive
+    let new_value = rs_roundtrip_test_inductive(LeanTestInductive(value_ref));
+
+    // Write
+    let out = LeanInductiveHolder::alloc();
+    out.set_obj(0, new_value);
+    out.set_num_32(0, tag_copy);
     out
 }
 
@@ -740,9 +859,9 @@ pub(crate) extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> Le
 /// Owned ScalarStruct: sum all scalar fields using LeanCtorScalar.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
-    let u64val = ptr.get_64(0);
-    let u32val = ptr.get_32(0) as u64;
-    let u8val = ptr.get_8(0) as u64;
+    let u64val = ptr.get_num_64(0);
+    let u32val = ptr.get_num_32(0) as u64;
+    let u8val = ptr.get_num_8(0) as u64;
     u64val + u32val + u8val
     // ptr drops here → lean_dec
 }
