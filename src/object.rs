@@ -1229,6 +1229,11 @@ pub trait LeanCtorScalar {
 
     /// Set the `i`-th object field. Takes ownership of `val`.
     fn set_obj(&self, i: usize, val: impl Into<LeanOwned>) {
+        assert!(
+            i < Self::NUM_OBJ,
+            "object field index {i} out of bounds (NUM_OBJ = {})",
+            Self::NUM_OBJ
+        );
         let val: LeanOwned = val.into();
         unsafe { include::lean_ctor_set(self.as_ctor().as_raw(), to_u32(i), val.into_raw()) }
     }
@@ -1236,19 +1241,39 @@ pub trait LeanCtorScalar {
     // -- USize fields --
 
     fn get_usize(&self, i: usize) -> usize {
+        assert!(
+            i < Self::NUM_USIZE,
+            "USize field index {i} out of bounds (NUM_USIZE = {})",
+            Self::NUM_USIZE
+        );
         self.as_ctor().get_usize(i)
     }
     fn set_usize(&self, i: usize, val: usize) {
+        assert!(
+            i < Self::NUM_USIZE,
+            "USize field index {i} out of bounds (NUM_USIZE = {})",
+            Self::NUM_USIZE
+        );
         self.as_ctor().set_usize(i, val)
     }
 
     // -- 8-byte tier (UInt64 / Float) --
 
     fn get_num_64(&self, i: usize) -> u64 {
+        assert!(
+            i < Self::NUM_64,
+            "64-bit field index {i} out of bounds (NUM_64 = {})",
+            Self::NUM_64
+        );
         self.as_ctor()
             .get_u64(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + i * 8)
     }
     fn set_num_64(&self, i: usize, val: u64) {
+        assert!(
+            i < Self::NUM_64,
+            "64-bit field index {i} out of bounds (NUM_64 = {})",
+            Self::NUM_64
+        );
         self.as_ctor()
             .set_u64(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + i * 8, val)
     }
@@ -1256,10 +1281,20 @@ pub trait LeanCtorScalar {
     // -- 4-byte tier (UInt32 / Float32) --
 
     fn get_num_32(&self, i: usize) -> u32 {
+        assert!(
+            i < Self::NUM_32,
+            "32-bit field index {i} out of bounds (NUM_32 = {})",
+            Self::NUM_32
+        );
         self.as_ctor()
             .get_u32(scalar_base(&self.as_ctor(), Self::NUM_USIZE) + Self::NUM_64 * 8 + i * 4)
     }
     fn set_num_32(&self, i: usize, val: u32) {
+        assert!(
+            i < Self::NUM_32,
+            "32-bit field index {i} out of bounds (NUM_32 = {})",
+            Self::NUM_32
+        );
         self.as_ctor().set_u32(
             scalar_base(&self.as_ctor(), Self::NUM_USIZE) + Self::NUM_64 * 8 + i * 4,
             val,
@@ -1269,6 +1304,11 @@ pub trait LeanCtorScalar {
     // -- 2-byte tier (UInt16) --
 
     fn get_num_16(&self, i: usize) -> u16 {
+        assert!(
+            i < Self::NUM_16,
+            "16-bit field index {i} out of bounds (NUM_16 = {})",
+            Self::NUM_16
+        );
         self.as_ctor().get_u16(
             scalar_base(&self.as_ctor(), Self::NUM_USIZE)
                 + Self::NUM_64 * 8
@@ -1277,6 +1317,11 @@ pub trait LeanCtorScalar {
         )
     }
     fn set_num_16(&self, i: usize, val: u16) {
+        assert!(
+            i < Self::NUM_16,
+            "16-bit field index {i} out of bounds (NUM_16 = {})",
+            Self::NUM_16
+        );
         self.as_ctor().set_u16(
             scalar_base(&self.as_ctor(), Self::NUM_USIZE)
                 + Self::NUM_64 * 8
@@ -1289,6 +1334,11 @@ pub trait LeanCtorScalar {
     // -- 1-byte tier (UInt8 / Bool) --
 
     fn get_num_8(&self, i: usize) -> u8 {
+        assert!(
+            i < Self::NUM_8,
+            "8-bit field index {i} out of bounds (NUM_8 = {})",
+            Self::NUM_8
+        );
         self.as_ctor().get_u8(
             scalar_base(&self.as_ctor(), Self::NUM_USIZE)
                 + Self::NUM_64 * 8
@@ -1298,6 +1348,11 @@ pub trait LeanCtorScalar {
         )
     }
     fn set_num_8(&self, i: usize, val: u8) {
+        assert!(
+            i < Self::NUM_8,
+            "8-bit field index {i} out of bounds (NUM_8 = {})",
+            Self::NUM_8
+        );
         self.as_ctor().set_u8(
             scalar_base(&self.as_ctor(), Self::NUM_USIZE)
                 + Self::NUM_64 * 8
