@@ -55,26 +55,26 @@ pub fn inc_heartbeat() {
 pub unsafe extern "C" fn noop_foreach(_: *mut c_void, _: *mut include::lean_object) {}
 
 /// Generate a `#[repr(transparent)]` newtype over a `LeanRef` type parameter
-/// for a specific Lean type, with Clone, conditional Copy, from_raw, into_raw, and From impls.
+/// for a specific Lean type, with Clone, conditional Copy, `as_ctor`, `from_ctor`,
+/// `new`, `into_raw`, and `From<Self<LeanOwned>> for LeanOwned` impls.
+///
+/// This is the low-level building block for bare domain types (external
+/// objects, types without a ctor layout, or types whose layout is attached
+/// separately). For ctor-backed structures and inductives, prefer
+/// [`lean_inductive!`] — it calls this macro internally and also attaches
+/// the layout + accessor methods in one declaration.
 ///
 /// # Naming convention
 ///
-/// Domain types should be prefixed with `Lean` to distinguish them from Lean-side types
-/// and to match the built-in types (`LeanArray`, `LeanString`, `LeanNat`, etc.).
-///
-/// For example, a Lean `Point` structure becomes `LeanPoint` in Rust:
+/// Domain types should be prefixed with `Lean` to distinguish them from Lean-side
+/// types and to match the built-in types (`LeanArray`, `LeanString`, `LeanNat`, etc.).
 ///
 /// ```ignore
 /// lean_domain_type! {
-///     /// Lean `Point` — structure Point where x : Nat; y : Nat
-///     LeanPoint;
+///     /// Lean `RustData` — opaque external object
+///     LeanRustData;
 /// }
 /// ```
-///
-/// For structures with scalar fields, use [`lean_ctor!`] on the generated type
-/// to get type-indexed `get_*`/`set_*` accessors. For multi-variant inductives,
-/// declare one wrapper per variant (plus one for the inductive itself) and use
-/// [`lean_inductive!`] to wire them together.
 #[macro_export]
 macro_rules! lean_domain_type {
   ($($(#[$meta:meta])* $name:ident;)*) => {$(
@@ -140,15 +140,21 @@ macro_rules! lean_domain_type {
   )*};
 }
 
-/// Attach a single `lean_ctor_object` layout to a `lean_domain_type!` wrapper.
+/// Attach a single `lean_ctor_object` layout to a [`lean_domain_type!`] wrapper.
 ///
 /// Implements [`LeanCtorLayout<1>`](object::LeanCtorLayout) and generates
-/// inherent `alloc()` / `set_obj` / `get_usize` / `get_num_*` / `set_num_*`
-/// methods with bounds-checked, offset-baked access.
+/// inherent `alloc()`, `ctor_tag()`, `get_obj` / `set_obj`, `get_usize` /
+/// `set_usize`, and `get_num_{64,32,16,8}` / `set_num_{64,32,16,8}` methods.
+/// Indices are bounds-checked against the declared counts and all byte offsets
+/// are const-computed from the layout.
 ///
-/// Use for plain structures (tag defaults to 0) and for per-variant wrappers
-/// of multi-variant inductives (pass `tag: N`). Within each scalar type size,
-/// fields follow Lean's declaration order.
+/// Within each scalar size (8B / 4B / 2B / 1B), fields follow Lean's
+/// declaration order. Tag defaults to 0; pass `tag: N` for non-zero variants.
+///
+/// Most callers should use [`lean_inductive!`] instead — it composes
+/// [`lean_domain_type!`] + `lean_ctor!` in one declaration. Reach for
+/// `lean_ctor!` directly only if the domain type is declared separately (e.g.
+/// in another module) or if you want to attach the layout after the fact.
 ///
 /// ```ignore
 /// lean_domain_type! { LeanFoo; }

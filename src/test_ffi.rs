@@ -273,7 +273,7 @@ pub(crate) extern "C" fn rs_io_result_error_string(
 // LeanCtor scalar fields
 // =============================================================================
 
-/// Round-trip a ScalarStruct using LeanCtorScalar trait.
+/// Round-trip a ScalarStruct via generated accessors.
 /// Lean layout: 1 obj field, then scalars by descending size: u64, u32, u8.
 /// Total scalar size: 8 + 4 + 1 = 13 bytes.
 #[unsafe(no_mangle)]
@@ -399,7 +399,7 @@ pub(crate) extern "C" fn rs_external_get_label(
 // Extended scalar struct roundtrip (u8, u16, u32, u64, f64, f32)
 // =============================================================================
 
-/// Round-trip an ExtScalarStruct using LeanCtorScalar trait.
+/// Round-trip an ExtScalarStruct via generated accessors.
 /// Lean layout: 1 obj, then descending size: u64, f64, u32, f32, u16, u8.
 /// Total scalar: 27 bytes.
 #[unsafe(no_mangle)]
@@ -431,7 +431,7 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
 // USize struct roundtrip
 // =============================================================================
 
-/// Round-trip a USizeStruct using LeanCtorScalar trait.
+/// Round-trip a USizeStruct via generated accessors.
 /// Lean layout: 1 obj field, 1 usize field, then u8.
 /// Alloc: num_objs=1, scalar_sz=9 (8 for usize + 1 for u8).
 #[unsafe(no_mangle)]
@@ -449,7 +449,7 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     out
 }
 
-/// Round-trip a USizeMixedStruct using LeanCtorScalar trait.
+/// Round-trip a USizeMixedStruct via generated accessors.
 /// Lean layout: 1 obj field, 1 usize field, then scalars: u64, u32, bool.
 /// Total scalar size: 8 (usize) + 8 (u64) + 4 (u32) + 1 (bool) = 21 bytes.
 #[unsafe(no_mangle)]
@@ -475,7 +475,7 @@ pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
 // BoolStruct / MultiU32Struct roundtrips (batch scalar access)
 // =============================================================================
 
-/// Round-trip a BoolStruct using LeanCtorScalar trait.
+/// Round-trip a BoolStruct via generated accessors.
 /// Lean layout: 1 obj field, then 3 Bool scalars.
 /// Total scalar size: 3 bytes.
 #[unsafe(no_mangle)]
@@ -495,7 +495,7 @@ pub(crate) extern "C" fn rs_roundtrip_bool_struct(
     out
 }
 
-/// Round-trip a MultiU32Struct using LeanCtorScalar trait.
+/// Round-trip a MultiU32Struct via generated accessors.
 /// Lean layout: 1 obj field, then 3 UInt32 scalars.
 /// Total scalar size: 12 bytes.
 #[unsafe(no_mangle)]
@@ -855,7 +855,7 @@ pub(crate) extern "C" fn rs_owned_prod_multiply(pair: LeanProd<LeanOwned>) -> Le
     Nat(fst.0 * snd.0).to_lean()
 }
 
-/// Owned ScalarStruct: sum all scalar fields using LeanCtorScalar.
+/// Owned ScalarStruct: sum all scalar fields via generated accessors.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn rs_owned_scalar_sum(ptr: LeanScalarStruct<LeanOwned>) -> u64 {
     let u64val = ptr.get_num_64(0);

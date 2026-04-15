@@ -387,7 +387,7 @@ def borrowedRoundtripTests : TestSeq :=
   test "MultiU32Struct zeros" (roundtripMultiU32Struct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
   test "MultiU32Struct max" (roundtripMultiU32Struct ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩ == ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩) ++
   test "MultiU32Struct mixed" (roundtripMultiU32Struct ⟨1, 42, 0, 99⟩ == ⟨1, 42, 0, 99⟩) ++
-  -- TestInductive: multi-constructor inductive with non-zero tags
+  -- TestInductive: multi-variant inductive with non-zero tags
   test "TestInductive empty" (roundtripTestInductive .empty == .empty) ++
   test "TestInductive withScalars" (roundtripTestInductive (.withScalars 42 99) == .withScalars 42 99) ++
   test "TestInductive withScalars max" (roundtripTestInductive (.withScalars 0xFFFFFFFFFFFFFFFF 0) == .withScalars 0xFFFFFFFFFFFFFFFF 0) ++

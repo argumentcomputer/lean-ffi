@@ -102,41 +102,63 @@ becomes `LeanPoint` in Rust.
 
 #### Defining custom domain types
 
-Use the `lean_domain_type!` macro to define newtypes for your Lean types:
+Use the `lean_inductive!` macro to declare a ctor-backed domain type. It
+generates a `#[repr(transparent)]` wrapper and attaches typed accessors
+(`get_obj`/`set_obj`, `get_num_{64,32,16,8}`/`set_num_*`, `get_usize`/`set_usize`)
+plus an `alloc()` constructor. Byte offsets are computed at compile time from
+the declared layout; indices are bounds-checked.
+
+**Structure** (one constructor, tag 0):
 
 ```rust
-lean_ffi::lean_domain_type! {
-    /// Lean `Point` — structure Point where x : Nat; y : Nat
-    LeanPoint;
+lean_ffi::lean_inductive! {
     /// Lean `PutResponse` — structure PutResponse where message : String; hash : String
-    LeanPutResponse;
-}
-```
-
-This generates a `#[repr(transparent)]` wrapper with `Clone`, `Copy` for
-`LeanBorrowed`, `self.inner()`, `self.as_raw()`, `self.into_raw()`, and `From`
-impls. You can then add accessor methods — readers are generic over `R: LeanRef`
-(work on both owned and borrowed), constructors return `LeanOwned`:
-
-```rust
-impl<R: LeanRef> LeanPutResponse<R> {
-    pub fn message(&self) -> LeanBorrowed<'_> {
-        self.as_ctor().get(0)  // borrowed ref into the object, no lean_inc
-    }
-    pub fn hash(&self) -> LeanBorrowed<'_> {
-        self.as_ctor().get(1)
-    }
+    LeanPutResponse { num_obj: 2 }
 }
 
 impl LeanPutResponse<LeanOwned> {
     pub fn mk(message: &str, hash: &str) -> Self {
-        let ctor = LeanCtor::alloc(0, 2, 0);
-        ctor.set(0, LeanString::new(message));
-        ctor.set(1, LeanString::new(hash));
-        Self::new(ctor.into())
+        let obj = Self::alloc();
+        obj.set_obj(0, LeanString::new(message));
+        obj.set_obj(1, LeanString::new(hash));
+        obj
     }
 }
 ```
+
+**Multi-variant inductive** — declare the top-level wrapper and each variant
+in one call. `From<Variant<LeanOwned>> for Top<LeanOwned>` is generated for
+ergonomic construction:
+
+```rust
+lean_ffi::lean_inductive! {
+    /// Lean `CompareResult` — | matched | mismatch (l r : UInt64) | notFound
+    LeanCompareResult {
+        LeanCompareMatched  { tag: 0 },
+        LeanCompareMismatch { tag: 1, num_64: 2 },
+        LeanCompareNotFound { tag: 2 },
+    }
+}
+
+// Build side:
+let m = LeanCompareMismatch::alloc();
+m.set_num_64(0, lean_size);
+m.set_num_64(1, rust_size);
+let result: LeanCompareResult<LeanOwned> = m.into();
+
+// Read side: dispatch on ctor.tag(), then construct the variant wrapper:
+match result.as_ctor().tag() {
+    1 => {
+        let m = LeanCompareMismatch::from_ctor(result.as_ctor());
+        let (l, r) = (m.get_num_64(0), m.get_num_64(1));
+    }
+    _ => { /* matched or not found */ }
+}
+```
+
+For bare domain types without a ctor layout (opaque external objects, etc.)
+use the lower-level `lean_domain_type!` macro, which generates just the wrapper
+and does not attach a layout.
 
 ### Inductive types and field layout
 
@@ -178,30 +200,41 @@ bytes):
 - `u32val` occupies bytes 8–11
 - `u8val` occupies byte 12
 
-Use `LeanCtor` to access fields at the correct positions. Scalar getters and
-setters take `(num_slots, byte_offset)` — `num_slots` is the total number of
-8-byte slots (object fields + USize fields) preceding the scalar data area, and
-`byte_offset` is the position of the field within that area.
+Declare the field counts per size (object / USize / 64 / 32 / 16 / 8) and the
+`lean_inductive!` macro computes offsets and generates size-indexed accessors:
 
 ```rust
-impl<R: LeanRef> LeanScalarStruct<R> {
-    pub fn obj(&self) -> LeanBorrowed<'_> { self.as_ctor().get(0) }
-    pub fn u64val(&self) -> u64 { self.as_ctor().get_u64(1, 0) }
-    pub fn u32val(&self) -> u32 { self.as_ctor().get_u32(1, 8) }
-    pub fn u8val(&self) -> u8  { self.as_ctor().get_u8(1, 12) }
+lean_ffi::lean_inductive! {
+    /// Lean `MyStruct` — u8val, obj, u32val, u64val (declaration order)
+    LeanMyStruct { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 }
 }
 
-impl LeanScalarStruct<LeanOwned> {
+impl<R: LeanRef> LeanMyStruct<R> {
+    pub fn obj(&self)    -> LeanBorrowed<'_> { self.get_obj(0) }
+    pub fn u64val(&self) -> u64              { self.get_num_64(0) }
+    pub fn u32val(&self) -> u32              { self.get_num_32(0) }
+    pub fn u8val(&self)  -> u8               { self.get_num_8(0) }
+}
+
+impl LeanMyStruct<LeanOwned> {
     pub fn mk(obj: LeanNat<LeanOwned>, u64val: u64, u32val: u32, u8val: u8) -> Self {
-        let ctor = LeanCtor::alloc(0, 1, 13); // tag 0, 1 obj field, 13 scalar bytes
-        ctor.set(0, obj);                // object field 0
-        ctor.set_u64(1, 0, u64val);      // 1 slot before scalars, byte 0
-        ctor.set_u32(1, 8, u32val);      // 1 slot before scalars, byte 8
-        ctor.set_u8(1, 12, u8val);       // 1 slot before scalars, byte 12
-        Self::new(ctor.into())
+        let out = Self::alloc();
+        out.set_obj(0, obj);
+        out.set_num_64(0, u64val);
+        out.set_num_32(0, u32val);
+        out.set_num_8(0, u8val);
+        out
     }
 }
 ```
+
+Indices are per size (first `num_64`, first `num_32`, …) and in Lean's
+declaration order within each size. No hand-rolled byte offsets.
+
+If you need raw, unchecked access (e.g. for non-standard layouts) the
+`LeanCtor` type exposes `get_u{8,16,32,64}(offset)` / `set_u{8,16,32,64}(offset, val)`
+with absolute byte offsets matching Lean's `lean_ctor_get_uint*` /
+`lean_ctor_set_uint*` C API.
 
 ### External objects (`LeanExternal<T, R>`)
 
