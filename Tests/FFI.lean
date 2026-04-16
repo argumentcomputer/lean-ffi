@@ -83,6 +83,9 @@ opaque roundtripOuter : @& Outer → Outer
 @[extern "rs_roundtrip_inductive_holder"]
 opaque roundtripInductiveHolder : @& InductiveHolder → InductiveHolder
 
+@[extern "rs_roundtrip_struct_in_variant"]
+opaque roundtripStructInVariant : @& StructInVariant → StructInVariant
+
 @[extern "rs_roundtrip_float"]
 opaque roundtripFloat : Float → Float
 
@@ -400,6 +403,12 @@ def borrowedRoundtripTests : TestSeq :=
   test "InductiveHolder empty" (roundtripInductiveHolder ⟨.empty, 0⟩ == ⟨.empty, 0⟩) ++
   test "InductiveHolder withScalars" (roundtripInductiveHolder ⟨.withScalars 10 20, 42⟩ == ⟨.withScalars 10 20, 42⟩) ++
   test "InductiveHolder withMixed" (roundtripInductiveHolder ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩ == ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩) ++
+  -- StructInVariant: inductive whose variants contain structures
+  test "StructInVariant empty" (roundtripStructInVariant .empty == .empty) ++
+  test "StructInVariant withPoint zeros" (roundtripStructInVariant (.withPoint ⟨0, 0⟩) == .withPoint ⟨0, 0⟩) ++
+  test "StructInVariant withPoint mixed" (roundtripStructInVariant (.withPoint ⟨42, 99⟩) == .withPoint ⟨42, 99⟩) ++
+  test "StructInVariant withScalar zeros" (roundtripStructInVariant (.withScalar ⟨0, 0, 0, 0⟩ 0) == .withScalar ⟨0, 0, 0, 0⟩ 0) ++
+  test "StructInVariant withScalar max" (roundtripStructInVariant (.withScalar ⟨1, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ 0xFFFFFFFF) == .withScalar ⟨1, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ 0xFFFFFFFF) ++
   test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
   test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:") ++
   test "External large u64" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++

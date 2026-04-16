@@ -22,12 +22,23 @@ use crate::object::{
 // =============================================================================
 
 crate::lean_domain_type! {
-    /// Lean `Point` — structure Point where x : Nat; y : Nat
-    LeanPoint;
-    /// Lean `NatTree` — inductive NatTree | leaf : Nat → NatTree | node : NatTree → NatTree → NatTree
-    LeanNatTree;
     /// Lean `RustData` — opaque external object
     LeanRustData;
+}
+
+crate::lean_inductive! {
+    /// Lean `Point` — structure Point where x : Nat; y : Nat
+    LeanPoint [ { num_obj: 2 } ]
+}
+
+crate::lean_inductive! {
+    /// Lean `NatTree` — | leaf (n : Nat) | node (l r : NatTree)
+    /// Recursive inductive: the `node` variant's object fields point to more
+    /// `NatTree` values, so this exercises nested-inductive access.
+    LeanNatTree [
+        { num_obj: 1 },  // tag 0 — leaf (1 Nat)
+        { num_obj: 2 },  // tag 1 — node (2 NatTree children)
+    ]
 }
 
 crate::lean_inductive! {
@@ -70,6 +81,16 @@ crate::lean_inductive! {
         { },                                  // tag 0 — empty
         { num_64: 2 },                        // tag 1 — withScalars (2 u64)
         { num_obj: 1, num_32: 1, num_8: 1 },  // tag 2 — withMixed (1 obj + 1 u32 + 1 bool)
+    ]
+}
+
+crate::lean_inductive! {
+    /// Lean `StructInVariant` — variants carry structure-typed fields.
+    /// | empty | withPoint (p : Point) | withScalar (s : ScalarStruct) (extra : UInt32)
+    LeanStructInVariant [
+        { },                       // tag 0 — empty
+        { num_obj: 1 },            // tag 1 — withPoint (1 obj: Point)
+        { num_obj: 1, num_32: 1 }, // tag 2 — withScalar (1 obj: ScalarStruct, 1 u32)
     ]
 }
 
@@ -163,13 +184,12 @@ pub(crate) extern "C" fn rs_roundtrip_option_nat(
 pub(crate) extern "C" fn rs_roundtrip_point(
     point_ptr: LeanPoint<LeanBorrowed<'_>>,
 ) -> LeanPoint<LeanOwned> {
-    let ctor = point_ptr.as_ctor();
-    let x = Nat::from_obj(&ctor.get(0));
-    let y = Nat::from_obj(&ctor.get(1));
-    let out = LeanCtor::alloc(0, 2, 0);
-    out.set(0, build_nat(&x));
-    out.set(1, build_nat(&y));
-    LeanPoint::new(out.into())
+    let x = Nat::from_obj(&point_ptr.get_obj(0));
+    let y = Nat::from_obj(&point_ptr.get_obj(1));
+    let out = LeanPoint::alloc(0);
+    out.set_obj(0, build_nat(&x));
+    out.set_obj(1, build_nat(&y));
+    out
 }
 
 /// Round-trip a NatTree (inductive: leaf Nat | node NatTree NatTree).
@@ -177,28 +197,28 @@ pub(crate) extern "C" fn rs_roundtrip_point(
 pub(crate) extern "C" fn rs_roundtrip_nat_tree(
     tree_ptr: LeanNatTree<LeanBorrowed<'_>>,
 ) -> LeanNatTree<LeanOwned> {
-    LeanNatTree::new(roundtrip_nat_tree_recursive(&tree_ptr.as_ctor()))
+    roundtrip_nat_tree(&tree_ptr)
 }
 
-fn roundtrip_nat_tree_recursive(ctor: &LeanCtor<impl LeanRef>) -> LeanOwned {
-    match ctor.tag() {
+fn roundtrip_nat_tree(tree: &LeanNatTree<impl LeanRef>) -> LeanNatTree<LeanOwned> {
+    match tree.as_ctor().tag() {
         0 => {
             // leaf : Nat → NatTree
-            let nat = Nat::from_obj(&ctor.get(0));
-            let leaf = LeanCtor::alloc(0, 1, 0);
-            leaf.set(0, build_nat(&nat));
-            leaf.into()
+            let nat = Nat::from_obj(&tree.get_obj(0));
+            let out = LeanNatTree::alloc(0);
+            out.set_obj(0, build_nat(&nat));
+            out
         }
         1 => {
-            // node : NatTree → NatTree → NatTree
-            let left = roundtrip_nat_tree_recursive(&ctor.get(0).as_ctor());
-            let right = roundtrip_nat_tree_recursive(&ctor.get(1).as_ctor());
-            let node = LeanCtor::alloc(1, 2, 0);
-            node.set(0, left);
-            node.set(1, right);
-            node.into()
+            // node : NatTree → NatTree → NatTree  (recurse into children)
+            let left = roundtrip_nat_tree(&LeanNatTree::from_ctor(tree.get_obj(0).as_ctor()));
+            let right = roundtrip_nat_tree(&LeanNatTree::from_ctor(tree.get_obj(1).as_ctor()));
+            let out = LeanNatTree::alloc(1);
+            out.set_obj(0, left);
+            out.set_obj(1, right);
+            out
         }
-        _ => panic!("Invalid NatTree tag: {}", ctor.tag()),
+        tag => panic!("Invalid NatTree tag: {tag}"),
     }
 }
 
@@ -615,6 +635,60 @@ pub(crate) extern "C" fn rs_roundtrip_inductive_holder(
     out.set_obj(0, new_value);
     out.set_num_32(0, tag_copy);
     out
+}
+
+/// Round-trip a StructInVariant — an inductive whose variants hold structures.
+///
+/// Exercises variant-dispatched access where the variant's payload is itself
+/// a ctor-backed Lean structure (`Point` / `ScalarStruct`), re-using those
+/// structures' own generated accessors for the inner reads and writes.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_roundtrip_struct_in_variant(
+    ptr: LeanStructInVariant<LeanBorrowed<'_>>,
+) -> LeanStructInVariant<LeanOwned> {
+    // Tag 0 (empty) — scalar-unboxed by Lean.
+    if ptr.inner().is_scalar() {
+        return LeanStructInVariant::new(ptr.inner().to_owned_ref());
+    }
+
+    let tag = ptr.as_ctor().tag();
+    match tag {
+        1 => {
+            // withPoint: clone the Point out and rebuild it via LeanPoint's accessors.
+            let src_pt = LeanPoint::from_ctor(ptr.get_obj(0).as_ctor());
+            let x = Nat::from_obj(&src_pt.get_obj(0));
+            let y = Nat::from_obj(&src_pt.get_obj(1));
+
+            let new_pt = LeanPoint::alloc(0);
+            new_pt.set_obj(0, build_nat(&x));
+            new_pt.set_obj(1, build_nat(&y));
+
+            let dst = LeanStructInVariant::alloc(1);
+            dst.set_obj(0, new_pt);
+            dst
+        }
+        2 => {
+            // withScalar: clone the ScalarStruct out + copy the trailing u32.
+            let src_ss = LeanScalarStruct::from_ctor(ptr.get_obj(0).as_ctor());
+            let obj_nat = Nat::from_obj(&src_ss.get_obj(0));
+            let u64val = src_ss.get_num_64(0);
+            let u32val = src_ss.get_num_32(0);
+            let u8val = src_ss.get_num_8(0);
+            let extra = ptr.get_num_32(0);
+
+            let new_ss = LeanScalarStruct::alloc(0);
+            new_ss.set_obj(0, build_nat(&obj_nat));
+            new_ss.set_num_64(0, u64val);
+            new_ss.set_num_32(0, u32val);
+            new_ss.set_num_8(0, u8val);
+
+            let dst = LeanStructInVariant::alloc(2);
+            dst.set_obj(0, new_ss);
+            dst.set_num_32(0, extra);
+            dst
+        }
+        _ => unreachable!("Invalid StructInVariant tag: {tag}"),
+    }
 }
 
 // =============================================================================

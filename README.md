@@ -136,14 +136,9 @@ Variant layouts are listed inside `[ … ]`, in tag order.
 ```rust
 lean_ffi::lean_inductive! { LeanPoint [ { num_obj: 2 } ] }
 
-impl LeanPoint<LeanOwned> {
-    pub fn mk(x: LeanNat<LeanOwned>, y: LeanNat<LeanOwned>) -> Self {
-        let p = Self::alloc(0);
-        p.set_obj(0, x);
-        p.set_obj(1, y);
-        p
-    }
-}
+let p = LeanPoint::alloc(0);
+p.set_obj(0, x_nat);
+p.set_obj(1, y_nat);
 ```
 
 **Inductive** — from:
@@ -227,13 +222,6 @@ first 1-byte scalar, etc. No hand-rolled byte offsets:
 ```rust
 lean_ffi::lean_inductive! {
     LeanMyStruct [ { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 } ]
-}
-
-impl<R: LeanRef> LeanMyStruct<R> {
-    pub fn obj(&self)    -> LeanBorrowed<'_> { self.get_obj(0) }
-    pub fn u64val(&self) -> u64              { self.get_num_64(0) }
-    pub fn u32val(&self) -> u32              { self.get_num_32(0) }
-    pub fn u8val(&self)  -> u8               { self.get_num_8(0) }
 }
 ```
 

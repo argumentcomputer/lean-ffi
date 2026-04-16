@@ -178,6 +178,18 @@ structure InductiveHolder where
   tag_copy : UInt32
 deriving Repr, BEq, DecidableEq, Inhabited
 
+/-- Inductive whose variants carry structure-typed fields.
+    Tests that variant accessors work when the variant's field is itself a
+    ctor-backed Lean structure.
+    - empty: tag 0, no fields (scalar representation)
+    - withPoint: tag 1, 1 object field (a `Point`)
+    - withScalar: tag 2, 1 object field (a `ScalarStruct`) + 1 UInt32 -/
+inductive StructInVariant
+  | empty
+  | withPoint (p : Point)
+  | withScalar (s : ScalarStruct) (extra : UInt32)
+deriving Repr, BEq, DecidableEq, Inhabited
+
 /-! ## Shrinkable instances -/
 
 instance : Shrinkable Nat where
