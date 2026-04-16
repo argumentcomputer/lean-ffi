@@ -32,48 +32,45 @@ crate::lean_domain_type! {
 
 crate::lean_inductive! {
     /// Lean `ScalarStruct` — structure ScalarStruct where obj : Nat; u8val : UInt8; u32val : UInt32; u64val : UInt64
-    LeanScalarStruct { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 }
+    LeanScalarStruct [ { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 } ]
 }
 crate::lean_inductive! {
     /// Lean `ExtScalarStruct` — all scalar types
-    LeanExtScalarStruct { num_obj: 1, num_64: 2, num_32: 2, num_16: 1, num_8: 1 }
+    LeanExtScalarStruct [ { num_obj: 1, num_64: 2, num_32: 2, num_16: 1, num_8: 1 } ]
 }
 crate::lean_inductive! {
     /// Lean `USizeStruct` — structure USizeStruct where obj : Nat; uval : USize; u8val : UInt8
-    LeanUSizeStruct { num_obj: 1, num_usize: 1, num_8: 1 }
+    LeanUSizeStruct [ { num_obj: 1, num_usize: 1, num_8: 1 } ]
 }
 crate::lean_inductive! {
     /// Lean `USizeMixedStruct` — structure with USize + u64 + u32 + Bool
-    LeanUSizeMixedStruct { num_obj: 1, num_usize: 1, num_64: 1, num_32: 1, num_8: 1 }
+    LeanUSizeMixedStruct [ { num_obj: 1, num_usize: 1, num_64: 1, num_32: 1, num_8: 1 } ]
 }
 crate::lean_inductive! {
     /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
-    LeanBoolStruct { num_obj: 1, num_8: 3 }
+    LeanBoolStruct [ { num_obj: 1, num_8: 3 } ]
 }
 crate::lean_inductive! {
     /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
-    LeanMultiU32Struct { num_obj: 1, num_32: 3 }
+    LeanMultiU32Struct [ { num_obj: 1, num_32: 3 } ]
 }
 crate::lean_inductive! {
     /// Lean `Outer` — structure containing ScalarStruct + String + UInt64
-    LeanOuter { num_obj: 2, num_64: 1 }
+    LeanOuter [ { num_obj: 2, num_64: 1 } ]
 }
 crate::lean_inductive! {
     /// Lean `InductiveHolder` — structure containing TestInductive + UInt32
-    LeanInductiveHolder { num_obj: 1, num_32: 1 }
+    LeanInductiveHolder [ { num_obj: 1, num_32: 1 } ]
 }
 
 crate::lean_inductive! {
-    /// Lean `TestInductive` — multi-variant inductive for tag dispatch testing.
-    /// tag 0 (empty, scalar-unboxed), tag 1 (2 u64), tag 2 (1 obj + 1 u32 + 1 bool).
-    LeanTestInductive {
-        /// tag 0 — no fields (scalar-unboxed by Lean)
-        LeanTestInductiveEmpty        { tag: 0 },
-        /// tag 1 — 2 u64 fields
-        LeanTestInductiveWithScalars  { tag: 1, num_64: 2 },
-        /// tag 2 — 1 obj + 1 u32 + 1 bool
-        LeanTestInductiveWithMixed    { tag: 2, num_obj: 1, num_32: 1, num_8: 1 },
-    }
+    /// Lean `TestInductive` — | empty | withScalars (a b : UInt64) | withMixed (obj : Nat) (x : UInt32) (flag : Bool)
+    /// Tag 0 is scalar-unboxed by Lean; tags 1–2 are ctor objects.
+    LeanTestInductive [
+        { },                                  // tag 0 — empty
+        { num_64: 2 },                        // tag 1 — withScalars (2 u64)
+        { num_obj: 1, num_32: 1, num_8: 1 },  // tag 2 — withMixed (1 obj + 1 u32 + 1 bool)
+    ]
 }
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).
@@ -285,7 +282,7 @@ pub(crate) extern "C" fn rs_roundtrip_scalar_struct(
     let u32val = ptr.get_num_32(0);
     let u8val = ptr.get_num_8(0);
 
-    let out = LeanScalarStruct::alloc();
+    let out = LeanScalarStruct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_num_64(0, u64val);
     out.set_num_32(0, u32val);
@@ -416,7 +413,7 @@ pub(crate) extern "C" fn rs_roundtrip_ext_scalar_struct(
     let u16val = ptr.get_num_16(0);
     let u8val = ptr.get_num_8(0);
 
-    let out = LeanExtScalarStruct::alloc();
+    let out = LeanExtScalarStruct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_num_64(0, u64val);
     out.set_num_64(1, fval.to_bits());
@@ -442,7 +439,7 @@ pub(crate) extern "C" fn rs_roundtrip_usize_struct(
     let uval = ptr.get_usize(0);
     let u8val = ptr.get_num_8(0);
 
-    let out = LeanUSizeStruct::alloc();
+    let out = LeanUSizeStruct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_usize(0, uval);
     out.set_num_8(0, u8val);
@@ -462,7 +459,7 @@ pub(crate) extern "C" fn rs_roundtrip_usize_mixed_struct(
     let u32val = ptr.get_num_32(0);
     let bval = ptr.get_num_8(0) != 0;
 
-    let out = LeanUSizeMixedStruct::alloc();
+    let out = LeanUSizeMixedStruct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_usize(0, uval);
     out.set_num_64(0, u64val);
@@ -487,7 +484,7 @@ pub(crate) extern "C" fn rs_roundtrip_bool_struct(
     let b2 = ptr.get_num_8(1);
     let b3 = ptr.get_num_8(2);
 
-    let out = LeanBoolStruct::alloc();
+    let out = LeanBoolStruct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_num_8(0, b1);
     out.set_num_8(1, b2);
@@ -507,7 +504,7 @@ pub(crate) extern "C" fn rs_roundtrip_multi_u32_struct(
     let b = ptr.get_num_32(1);
     let c = ptr.get_num_32(2);
 
-    let out = LeanMultiU32Struct::alloc();
+    let out = LeanMultiU32Struct::alloc(0);
     out.set_obj(0, build_nat(&obj_nat));
     out.set_num_32(0, a);
     out.set_num_32(1, b);
@@ -532,33 +529,31 @@ pub(crate) extern "C" fn rs_roundtrip_test_inductive(
         return LeanTestInductive::new(ptr.inner().to_owned_ref());
     }
 
-    let ctor = ptr.as_ctor();
-    match ctor.tag() {
+    let tag = ptr.as_ctor().tag();
+    match tag {
         1 => {
-            // withScalars: use the variant domain type
-            let src = LeanTestInductiveWithScalars::from_ctor(ctor);
-            let a = src.get_num_64(0);
-            let b = src.get_num_64(1);
+            // withScalars: 2 u64 fields
+            let a = ptr.get_num_64(0);
+            let b = ptr.get_num_64(1);
 
-            let dst = LeanTestInductiveWithScalars::alloc();
+            let dst = LeanTestInductive::alloc(1);
             dst.set_num_64(0, a);
             dst.set_num_64(1, b);
-            dst.into()
+            dst
         }
         2 => {
-            // withMixed: use the variant domain type
-            let src = LeanTestInductiveWithMixed::from_ctor(ctor);
-            let obj_nat = Nat::from_obj(&src.as_ctor().get(0));
-            let x = src.get_num_32(0);
-            let flag = src.get_num_8(0);
+            // withMixed: 1 obj + 1 u32 + 1 bool
+            let obj_nat = Nat::from_obj(&ptr.get_obj(0));
+            let x = ptr.get_num_32(0);
+            let flag = ptr.get_num_8(0);
 
-            let dst = LeanTestInductiveWithMixed::alloc();
+            let dst = LeanTestInductive::alloc(2);
             dst.set_obj(0, build_nat(&obj_nat));
             dst.set_num_32(0, x);
             dst.set_num_8(0, flag);
-            dst.into()
+            dst
         }
-        _ => unreachable!("Invalid TestInductive tag: {}", ctor.tag()),
+        _ => unreachable!("Invalid TestInductive tag: {tag}"),
     }
 }
 
@@ -585,7 +580,7 @@ pub(crate) extern "C" fn rs_roundtrip_outer(
     let inner_u8 = inner_wrapped.get_num_8(0);
     let inner_obj = Nat::from_obj(&inner_wrapped.as_ctor().get(0));
 
-    let new_inner = LeanScalarStruct::alloc();
+    let new_inner = LeanScalarStruct::alloc(0);
     new_inner.set_obj(0, build_nat(&inner_obj));
     new_inner.set_num_64(0, inner_u64);
     new_inner.set_num_32(0, inner_u32);
@@ -595,7 +590,7 @@ pub(crate) extern "C" fn rs_roundtrip_outer(
     let new_label = LeanString::new(&label_ref.as_string().to_string());
 
     // Write: construct new Outer
-    let out = LeanOuter::alloc();
+    let out = LeanOuter::alloc(0);
     out.set_obj(0, new_inner);
     out.set_obj(1, new_label);
     out.set_num_64(0, count);
@@ -616,7 +611,7 @@ pub(crate) extern "C" fn rs_roundtrip_inductive_holder(
     let new_value = rs_roundtrip_test_inductive(LeanTestInductive(value_ref));
 
     // Write
-    let out = LeanInductiveHolder::alloc();
+    let out = LeanInductiveHolder::alloc(0);
     out.set_obj(0, new_value);
     out.set_num_32(0, tag_copy);
     out
@@ -1791,26 +1786,26 @@ mod layout_sanity {
     type Outer = super::LeanOuter<LeanOwned>;
     type Holder = super::LeanInductiveHolder<LeanOwned>;
     type Ind = super::LeanTestInductive<LeanOwned>;
-    type Empty = super::LeanTestInductiveEmpty<LeanOwned>;
-    type WScalars = super::LeanTestInductiveWithScalars<LeanOwned>;
-    type WMixed = super::LeanTestInductiveWithMixed<LeanOwned>;
 
-    fn layout<T: LeanCtorLayout<1>>() -> SingleCtorLayout {
-        <T as LeanCtorLayout<1>>::LAYOUTS[0]
+    /// The single layout for a structure (1-variant type).
+    fn struct_layout<T: LeanCtorLayout>() -> SingleCtorLayout {
+        let layouts = <T as LeanCtorLayout>::LAYOUTS;
+        assert_eq!(layouts.len(), 1, "expected a 1-variant (structure) type");
+        layouts[0]
     }
 
     #[test]
     fn scalar_struct_layout() {
-        let l = layout::<Scalar>();
-        assert_eq!((l.tag, l.num_obj), (0, 1));
+        let l = struct_layout::<Scalar>();
+        assert_eq!(l.num_obj, 1);
         assert_eq!((l.num_64, l.num_32, l.num_16, l.num_8), (1, 1, 0, 1));
         assert_eq!(l.scalar_size(), 8 + 4 + 1);
     }
 
     #[test]
     fn ext_scalar_struct_layout() {
-        let l = layout::<Ext>();
-        assert_eq!((l.tag, l.num_obj), (0, 1));
+        let l = struct_layout::<Ext>();
+        assert_eq!(l.num_obj, 1);
         assert_eq!((l.num_64, l.num_32, l.num_16, l.num_8), (2, 2, 1, 1));
         assert_eq!(l.offset_32(0), l.scalar_base() + 16);
         assert_eq!(l.offset_8(0), l.scalar_base() + 16 + 8 + 2);
@@ -1818,7 +1813,7 @@ mod layout_sanity {
 
     #[test]
     fn usize_struct_layout() {
-        let l = layout::<USize_>();
+        let l = struct_layout::<USize_>();
         assert_eq!(l.num_usize, 1);
         assert_eq!(l.num_8, 1);
         // USize sits between obj fields and fixed-width scalars.
@@ -1827,7 +1822,7 @@ mod layout_sanity {
 
     #[test]
     fn usize_mixed_struct_layout() {
-        let l = layout::<UMixed>();
+        let l = struct_layout::<UMixed>();
         assert_eq!(
             (l.num_obj, l.num_usize, l.num_64, l.num_32, l.num_8),
             (1, 1, 1, 1, 1)
@@ -1836,59 +1831,42 @@ mod layout_sanity {
 
     #[test]
     fn bool_struct_layout() {
-        let l = layout::<Bools>();
+        let l = struct_layout::<Bools>();
         assert_eq!(l.num_8, 3);
         assert_eq!(l.offset_8(2), l.scalar_base() + 2);
     }
 
     #[test]
     fn multi_u32_struct_layout() {
-        let l = layout::<MultiU32>();
+        let l = struct_layout::<MultiU32>();
         assert_eq!(l.num_32, 3);
         assert_eq!(l.offset_32(2), l.scalar_base() + 8);
     }
 
     #[test]
     fn outer_layout() {
-        let l = layout::<Outer>();
+        let l = struct_layout::<Outer>();
         assert_eq!((l.num_obj, l.num_64), (2, 1));
     }
 
     #[test]
     fn inductive_holder_layout() {
-        let l = layout::<Holder>();
+        let l = struct_layout::<Holder>();
         assert_eq!((l.num_obj, l.num_32), (1, 1));
     }
 
     #[test]
-    fn inductive_variant_tags_match_positions() {
-        let layouts = <Ind as LeanCtorLayout<3>>::LAYOUTS;
-        assert_eq!(layouts[0].tag, 0);
-        assert_eq!(layouts[1].tag, 1);
-        assert_eq!(layouts[2].tag, 2);
-    }
-
-    #[test]
-    fn inductive_variant_layouts_match_variants() {
-        let layouts = <Ind as LeanCtorLayout<3>>::LAYOUTS;
-        // empty: tag 0, no fields
-        assert_eq!(layouts[0], layout::<Empty>());
-        // withScalars: tag 1, 2 u64
-        assert_eq!(layouts[1], layout::<WScalars>());
+    fn inductive_variant_layouts() {
+        let layouts = <Ind as LeanCtorLayout>::LAYOUTS;
+        assert_eq!(layouts.len(), 3);
+        // tag 0: empty
+        assert_eq!(layouts[0], SingleCtorLayout::ZERO);
+        // tag 1: withScalars (2 u64)
         assert_eq!(layouts[1].num_64, 2);
-        // withMixed: tag 2, 1 obj + 1 u32 + 1 bool
-        assert_eq!(layouts[2], layout::<WMixed>());
+        // tag 2: withMixed (1 obj + 1 u32 + 1 bool)
         assert_eq!(
             (layouts[2].num_obj, layouts[2].num_32, layouts[2].num_8),
             (1, 1, 1)
         );
-    }
-
-    #[test]
-    fn ctor_tag_matches_layout_tag() {
-        assert_eq!(Empty::ctor_tag(), 0);
-        assert_eq!(WScalars::ctor_tag(), 1);
-        assert_eq!(WMixed::ctor_tag(), 2);
-        assert_eq!(Scalar::ctor_tag(), 0);
     }
 }

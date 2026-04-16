@@ -3,14 +3,30 @@
 A Rust library that wraps low-level bindings to the
 [`lean.h`](https://github.com/leanprover/lean4/blob/master/src/include/lean/lean.h)
 Lean C library with a high-level API for safe and ergonomic FFI from Lean to
-Rust. This allows the user to focus on the actual Rust logic rather than
-manually manipulating pointers and keeping track of Lean reference counts.
+Rust. This allows the user to focus on the actual Rust logic rather than manual
+pointer manipulation and keeping track of Lean reference counts.
 
-The Rust bindings are auto-generated with
+The raw Rust bindings are auto-generated with
 [`rust-bindgen`](https://github.com/rust-lang/rust-bindgen). Bindgen runs in
 `build.rs` and generates unsafe Rust functions that link to `lean.h`. This
 module can be found at `target/release/build/lean-ffi-<hash>/out/lean.rs` after
 running `cargo build --release`.
+
+## Features
+
+- **RAII refcounting** for `LeanOwned` owned references via Rust `Clone` and
+  `Drop`
+- **Lifetime bounds** for `LeanBorrowed` borrowed references to prevent
+  use-after-free
+- **Thread-safe shared references** via `LeanShared` (`lean_mark_mt` +
+  `Send + Sync`).
+- **Typed domain wrappers** e.g. `LeanArray`, `LeanString` etc. with safe Rust
+  methods
+- **`Nat` conversions** via `num-bigint`, handling tagged scalars and big-ints
+- **`lean_inductive!` macro** for Lean `structure` / `inductive` types,
+  generating easy accessor methods without manually tracking byte offsets
+- **Safe external objects** via `ExternalClass::register_with_drop::<T>()` and
+  borrow-bound `LeanExternal<T>::get(&self) -> &T`.
 
 ## Background: Lean Ownership Model
 
@@ -102,111 +118,115 @@ becomes `LeanPoint` in Rust.
 
 #### Defining custom domain types
 
-Use the `lean_inductive!` macro to declare a ctor-backed domain type. It
-generates a `#[repr(transparent)]` wrapper and attaches typed accessors
-(`get_obj`/`set_obj`, `get_num_{64,32,16,8}`/`set_num_*`, `get_usize`/`set_usize`)
-plus an `alloc()` constructor. Byte offsets are computed at compile time from
-the declared layout; indices are bounds-checked.
+`lean_inductive!` wraps a Lean `structure` or `inductive` with its full
+per-constructor layout. It emits a `#[repr(transparent)]` newtype, a
+[`LeanCtorLayout`] impl whose `LAYOUTS` slice has one entry per constructor
+(indexed by tag), and typed accessors that bounds-check against the current
+variant's layout:
 
-**Structure** (one constructor, tag 0):
+- `alloc(tag: u8)` — `lean_alloc_ctor` for a specific variant.
+- `get_obj(i)` / `set_obj(i, val)` — object fields.
+- `get_usize(i)` / `set_usize(i, val)` — `USize` fields.
+- `get_num_{64,32,16,8}(i)` / `set_num_{64,32,16,8}(i, val)` — scalar fields.
+
+Variant layouts are listed inside `[ … ]`, in tag order.
+
+**Structure** — from `structure Point where x : Nat; y : Nat`:
 
 ```rust
-lean_ffi::lean_inductive! {
-    /// Lean `PutResponse` — structure PutResponse where message : String; hash : String
-    LeanPutResponse { num_obj: 2 }
-}
+lean_ffi::lean_inductive! { LeanPoint [ { num_obj: 2 } ] }
 
-impl LeanPutResponse<LeanOwned> {
-    pub fn mk(message: &str, hash: &str) -> Self {
-        let obj = Self::alloc();
-        obj.set_obj(0, LeanString::new(message));
-        obj.set_obj(1, LeanString::new(hash));
-        obj
+impl LeanPoint<LeanOwned> {
+    pub fn mk(x: LeanNat<LeanOwned>, y: LeanNat<LeanOwned>) -> Self {
+        let p = Self::alloc(0);
+        p.set_obj(0, x);
+        p.set_obj(1, y);
+        p
     }
 }
 ```
 
-**Multi-variant inductive** — declare the top-level wrapper and each variant
-in one call. `From<Variant<LeanOwned>> for Top<LeanOwned>` is generated for
-ergonomic construction:
+**Inductive** — from:
+
+```lean
+inductive CompareResult
+  | matched
+  | mismatch (leanSize rustSize : UInt64)
+  | notFound
+```
 
 ```rust
 lean_ffi::lean_inductive! {
-    /// Lean `CompareResult` — | matched | mismatch (l r : UInt64) | notFound
-    LeanCompareResult {
-        LeanCompareMatched  { tag: 0 },
-        LeanCompareMismatch { tag: 1, num_64: 2 },
-        LeanCompareNotFound { tag: 2 },
-    }
+    LeanCompareResult [
+        { },                // matched
+        { num_64: 2 },      // mismatch
+        { },                // notFound
+    ]
 }
 
-// Build side:
-let m = LeanCompareMismatch::alloc();
+// Build:
+let m = LeanCompareResult::alloc(1);
 m.set_num_64(0, lean_size);
 m.set_num_64(1, rust_size);
-let result: LeanCompareResult<LeanOwned> = m.into();
 
-// Read side: dispatch on ctor.tag(), then construct the variant wrapper:
+// Read — dispatch on the Lean tag, then access fields:
 match result.as_ctor().tag() {
     1 => {
-        let m = LeanCompareMismatch::from_ctor(result.as_ctor());
-        let (l, r) = (m.get_num_64(0), m.get_num_64(1));
+        let (l, r) = (result.get_num_64(0), result.get_num_64(1));
     }
-    _ => { /* matched or not found */ }
+    _ => { /* matched | notFound */ }
 }
 ```
 
-For bare domain types without a ctor layout (opaque external objects, etc.)
-use the lower-level `lean_domain_type!` macro, which generates just the wrapper
-and does not attach a layout.
+For wrappers without a ctor layout (opaque externals, types represented as
+`lean_box(n)`, etc.) use the lower-level `lean_domain_type!` macro.
 
-### Inductive types and field layout
+[`LeanCtorLayout`]: https://docs.rs/lean-ffi/latest/lean_ffi/object/trait.LeanCtorLayout.html
 
-Extra care must be taken when dealing with
-[inductive types](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/#run-time-inductives)
-as the runtime memory layout of constructor fields may not match the declaration
-order in Lean. Fields are reordered into three groups:
+### Constructor field layout
 
-1. Non-scalar fields (`lean_object*`), in declaration order
-2. `USize` fields, in declaration order
-3. Other scalar fields, in decreasing order by size, then declaration order
-   within each size
+Lean
+[reorders constructor fields](https://lean-lang.org/doc/reference/latest/The-Type-System/Inductive-Types/#run-time-inductives)
+at runtime. Declaration order does **not** match memory order. For every
+constructor, fields are laid out in this order:
 
-This means a structure like
+1. Object fields (`lean_object*`) — declaration order.
+2. `USize` fields — declaration order.
+3. Fixed-size scalars — descending size (8B → 4B → 2B → 1B), then declaration
+   order within each size.
+
+So for
 
 ```lean
 structure MyStruct where
-  u8val : UInt8
-  obj : Nat
+  u8val  : UInt8
+  obj    : Nat
   u32val : UInt32
   u64val : UInt64
 ```
 
-would be laid out as `[obj, u64val, u32val, u8val]` at runtime. Trivial wrapper
-types (e.g. `Char` wraps `UInt32`) count as their underlying scalar type.
+the runtime order is `[obj, u64val, u32val, u8val]`. Trivial wrappers (e.g.
+`Char` over `UInt32`) count as their underlying scalar.
 
-A constructor's memory looks like:
+Memory:
 
 ```
-[header (8B)] [object fields (8B each)] [USize fields (8B each)] [scalar data area]
+[header 8B] [object fields, 8B each] [USize fields, 8B each] [scalar bytes, descending size]
 ```
 
-Object fields and USize fields each occupy 8-byte slots. The scalar data area is
-a flat region of bytes containing all remaining scalar field values, packed by
-descending size. For `MyStruct` (1 object field, 0 USize fields, 13 scalar
-bytes):
+For `MyStruct` (`num_obj=1`, `num_usize=0`, `num_64=1`, `num_32=1`, `num_8=1`):
 
-- `u64val` occupies bytes 0–7 of the scalar area
-- `u32val` occupies bytes 8–11
-- `u8val` occupies byte 12
+- `u64val` at scalar bytes 0–7
+- `u32val` at scalar bytes 8–11
+- `u8val` at scalar byte 12
 
-Declare the field counts per size (object / USize / 64 / 32 / 16 / 8) and the
-`lean_inductive!` macro computes offsets and generates size-indexed accessors:
+`lean_inductive!` takes the per-size field counts and hands you size-indexed
+accessors — `get_num_64(0)` for the first 8-byte scalar, `get_num_8(0)` for the
+first 1-byte scalar, etc. No hand-rolled byte offsets:
 
 ```rust
 lean_ffi::lean_inductive! {
-    /// Lean `MyStruct` — u8val, obj, u32val, u64val (declaration order)
-    LeanMyStruct { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 }
+    LeanMyStruct [ { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 } ]
 }
 
 impl<R: LeanRef> LeanMyStruct<R> {
@@ -215,26 +235,11 @@ impl<R: LeanRef> LeanMyStruct<R> {
     pub fn u32val(&self) -> u32              { self.get_num_32(0) }
     pub fn u8val(&self)  -> u8               { self.get_num_8(0) }
 }
-
-impl LeanMyStruct<LeanOwned> {
-    pub fn mk(obj: LeanNat<LeanOwned>, u64val: u64, u32val: u32, u8val: u8) -> Self {
-        let out = Self::alloc();
-        out.set_obj(0, obj);
-        out.set_num_64(0, u64val);
-        out.set_num_32(0, u32val);
-        out.set_num_8(0, u8val);
-        out
-    }
-}
 ```
 
-Indices are per size (first `num_64`, first `num_32`, …) and in Lean's
-declaration order within each size. No hand-rolled byte offsets.
-
-If you need raw, unchecked access (e.g. for non-standard layouts) the
-`LeanCtor` type exposes `get_u{8,16,32,64}(offset)` / `set_u{8,16,32,64}(offset, val)`
-with absolute byte offsets matching Lean's `lean_ctor_get_uint*` /
-`lean_ctor_set_uint*` C API.
+For raw access (non-standard layouts, hand-tuned code), `LeanCtor` exposes
+`get_u{8,16,32,64}(offset)` / `set_u{8,16,32,64}(offset, val)` with absolute
+byte offsets matching `lean_ctor_get_uint*` / `lean_ctor_set_uint*`.
 
 ### External objects (`LeanExternal<T, R>`)
 
