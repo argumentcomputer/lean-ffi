@@ -28,70 +28,55 @@ crate::lean_domain_type! {
 
 crate::lean_inductive! {
     /// Lean `Point` — structure Point where x : Nat; y : Nat
-    LeanPoint [ { num_obj: 2 } ]
-}
+    LeanPoint [ { num_obj: 2 } ];
 
-crate::lean_inductive! {
     /// Lean `NatTree` — | leaf (n : Nat) | node (l r : NatTree)
     /// Recursive inductive: the `node` variant's object fields point to more
     /// `NatTree` values, so this exercises nested-inductive access.
     LeanNatTree [
         { num_obj: 1 },  // tag 0 — leaf (1 Nat)
         { num_obj: 2 },  // tag 1 — node (2 NatTree children)
-    ]
-}
+    ];
 
-crate::lean_inductive! {
     /// Lean `ScalarStruct` — structure ScalarStruct where obj : Nat; u8val : UInt8; u32val : UInt32; u64val : UInt64
-    LeanScalarStruct [ { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 } ]
-}
-crate::lean_inductive! {
-    /// Lean `ExtScalarStruct` — all scalar types
-    LeanExtScalarStruct [ { num_obj: 1, num_64: 2, num_32: 2, num_16: 1, num_8: 1 } ]
-}
-crate::lean_inductive! {
-    /// Lean `USizeStruct` — structure USizeStruct where obj : Nat; uval : USize; u8val : UInt8
-    LeanUSizeStruct [ { num_obj: 1, num_usize: 1, num_8: 1 } ]
-}
-crate::lean_inductive! {
-    /// Lean `USizeMixedStruct` — structure with USize + u64 + u32 + Bool
-    LeanUSizeMixedStruct [ { num_obj: 1, num_usize: 1, num_64: 1, num_32: 1, num_8: 1 } ]
-}
-crate::lean_inductive! {
-    /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
-    LeanBoolStruct [ { num_obj: 1, num_8: 3 } ]
-}
-crate::lean_inductive! {
-    /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
-    LeanMultiU32Struct [ { num_obj: 1, num_32: 3 } ]
-}
-crate::lean_inductive! {
-    /// Lean `Outer` — structure containing ScalarStruct + String + UInt64
-    LeanOuter [ { num_obj: 2, num_64: 1 } ]
-}
-crate::lean_inductive! {
-    /// Lean `InductiveHolder` — structure containing TestInductive + UInt32
-    LeanInductiveHolder [ { num_obj: 1, num_32: 1 } ]
-}
+    LeanScalarStruct [ { num_obj: 1, num_64: 1, num_32: 1, num_8: 1 } ];
 
-crate::lean_inductive! {
+    /// Lean `ExtScalarStruct` — all scalar types
+    LeanExtScalarStruct [ { num_obj: 1, num_64: 2, num_32: 2, num_16: 1, num_8: 1 } ];
+
+    /// Lean `USizeStruct` — structure USizeStruct where obj : Nat; uval : USize; u8val : UInt8
+    LeanUSizeStruct [ { num_obj: 1, num_usize: 1, num_8: 1 } ];
+
+    /// Lean `USizeMixedStruct` — structure with USize + u64 + u32 + Bool
+    LeanUSizeMixedStruct [ { num_obj: 1, num_usize: 1, num_64: 1, num_32: 1, num_8: 1 } ];
+
+    /// Lean `BoolStruct` — structure BoolStruct where obj : Nat; b1 : Bool; b2 : Bool; b3 : Bool
+    LeanBoolStruct [ { num_obj: 1, num_8: 3 } ];
+
+    /// Lean `MultiU32Struct` — structure MultiU32Struct where obj : Nat; a : UInt32; b : UInt32; c : UInt32
+    LeanMultiU32Struct [ { num_obj: 1, num_32: 3 } ];
+
+    /// Lean `Outer` — structure containing ScalarStruct + String + UInt64
+    LeanOuter [ { num_obj: 2, num_64: 1 } ];
+
+    /// Lean `InductiveHolder` — structure containing TestInductive + UInt32
+    LeanInductiveHolder [ { num_obj: 1, num_32: 1 } ];
+
     /// Lean `TestInductive` — | empty | withScalars (a b : UInt64) | withMixed (obj : Nat) (x : UInt32) (flag : Bool)
     /// Tag 0 is scalar-unboxed by Lean; tags 1–2 are ctor objects.
     LeanTestInductive [
         { },                                  // tag 0 — empty
         { num_64: 2 },                        // tag 1 — withScalars (2 u64)
         { num_obj: 1, num_32: 1, num_8: 1 },  // tag 2 — withMixed (1 obj + 1 u32 + 1 bool)
-    ]
-}
+    ];
 
-crate::lean_inductive! {
     /// Lean `StructInVariant` — variants carry structure-typed fields.
     /// | empty | withPoint (p : Point) | withScalar (s : ScalarStruct) (extra : UInt32)
     LeanStructInVariant [
         { },                       // tag 0 — empty
         { num_obj: 1 },            // tag 1 — withPoint (1 obj: Point)
         { num_obj: 1, num_32: 1 }, // tag 2 — withScalar (1 obj: ScalarStruct, 1 u32)
-    ]
+    ];
 }
 
 /// Build a Lean Nat from a Rust Nat (delegates to `Nat::to_lean`).

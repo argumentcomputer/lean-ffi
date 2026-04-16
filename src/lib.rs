@@ -203,14 +203,29 @@ macro_rules! lean_domain_type {
 ///
 /// `alloc(tag)` and every accessor panic if the index is out of range for
 /// the current variant.
+///
+/// Multiple types can share one invocation, separated by `;`:
+///
+/// ```ignore
+/// lean_inductive! {
+///     LeanPoint [ { num_obj: 2 } ];
+///     LeanNatTree [
+///         { num_obj: 1 },  // leaf
+///         { num_obj: 2 },  // node
+///     ];
+/// }
+/// ```
 #[macro_export]
 macro_rules! lean_inductive {
     (
-        $(#[$top_meta:meta])*
-        $top:ident [
-            $( { $($key:ident : $val:expr),* $(,)? } ),+ $(,)?
-        ]
+        $(
+            $(#[$top_meta:meta])*
+            $top:ident [
+                $( { $($key:ident : $val:expr),* $(,)? } ),+ $(,)?
+            ]
+        );+ $(;)?
     ) => {
+      $(
         $crate::lean_domain_type! { $(#[$top_meta])* $top; }
 
         impl<R: $crate::object::LeanRef> $crate::object::LeanCtorLayout for $top<R> {
@@ -327,5 +342,6 @@ macro_rules! lean_inductive {
                 )
             }
         }
+      )+
     };
 }
