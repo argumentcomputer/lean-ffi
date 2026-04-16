@@ -122,6 +122,74 @@ structure USizeStruct where
   u8val : UInt8
 deriving Repr, BEq, DecidableEq, Inhabited
 
+/-- Structure mixing USize with other scalar types.
+    Declaration order deliberately differs from memory layout to test
+    that FFI code handles Lean's field reordering correctly.
+    Declaration: obj, u64val, bval, uval, u32val
+    Memory layout: [obj] [uval (usize slot)] [u64val @ +0] [u32val @ +8] [bval @ +12]
+    Total scalar size = 8 (usize) + 8 (u64) + 4 (u32) + 1 (bool) = 21. -/
+structure USizeMixedStruct where
+  obj : Nat
+  u64val : UInt64
+  bval : Bool
+  uval : USize
+  u32val : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure with multiple Bool scalar fields for batch-read/write testing.
+    Layout: 1 object field (obj : Nat), then 3 Bool scalars. -/
+structure BoolStruct where
+  obj : Nat
+  b1 : Bool
+  b2 : Bool
+  b3 : Bool
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure with multiple UInt32 scalar fields for batch-read/write testing.
+    Layout: 1 object field (obj : Nat), then 3 UInt32 scalars. -/
+structure MultiU32Struct where
+  obj : Nat
+  a : UInt32
+  b : UInt32
+  c : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Inductive with multiple constructors for testing non-zero TAG.
+    - empty: tag 0, no fields (scalar representation)
+    - withScalars: tag 1, 2 u64 fields
+    - withMixed: tag 2, 1 obj field + 1 u32 + 1 bool -/
+inductive TestInductive
+  | empty
+  | withScalars (a b : UInt64)
+  | withMixed (obj : Nat) (x : UInt32) (flag : Bool)
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure containing another structure as an object field.
+    Tests nested structure access via the trait API. -/
+structure Outer where
+  inner : ScalarStruct
+  label : String
+  count : UInt64
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Structure containing an inductive as an object field. -/
+structure InductiveHolder where
+  value : TestInductive
+  tag_copy : UInt32
+deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- Inductive whose variants carry structure-typed fields.
+    Tests that variant accessors work when the variant's field is itself a
+    ctor-backed Lean structure.
+    - empty: tag 0, no fields (scalar representation)
+    - withPoint: tag 1, 1 object field (a `Point`)
+    - withScalar: tag 2, 1 object field (a `ScalarStruct`) + 1 UInt32 -/
+inductive StructInVariant
+  | empty
+  | withPoint (p : Point)
+  | withScalar (s : ScalarStruct) (extra : UInt32)
+deriving Repr, BEq, DecidableEq, Inhabited
+
 /-! ## Shrinkable instances -/
 
 instance : Shrinkable Nat where

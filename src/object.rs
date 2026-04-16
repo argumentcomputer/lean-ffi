@@ -36,6 +36,12 @@ use tags::*;
 /// Constructor tag for `IO.Error.userError`.
 const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 
+/// Convert a `usize` to `u32` for the Lean C API, panicking on overflow.
+#[inline]
+pub fn to_u32(val: usize) -> u32 {
+    u32::try_from(val).expect("value exceeds u32::MAX")
+}
+
 // =============================================================================
 // LeanRef trait — shared interface for owned and borrowed references
 // =============================================================================
@@ -896,6 +902,109 @@ impl From<LeanString<LeanOwned>> for LeanOwned {
 //   [obj_0, obj_1, ..., obj_{n-1}] [usize_0, ...] [scalar bytes (descending size)]
 
 /// Typed wrapper for a Lean constructor object (tag 0–`LEAN_MAX_CTOR_TAG`).
+///
+/// # Overall structure
+///
+/// In C, a constructor is:
+/// ```c
+/// typedef struct {
+///     lean_object   m_header;  // 8 bytes: tag in m_tag, obj count in m_other
+///     lean_object * m_objs[];  // flexible array: data area starts here
+/// } lean_ctor_object;
+/// ```
+///
+/// `m_objs` is a C flexible array member — it has no compile-time size.
+/// `lean_alloc_ctor(tag, num_objs, scalar_sz)` over-allocates so that the
+/// region starting at `m_objs` is large enough for `num_objs` pointer-width
+/// entries **plus** `scalar_sz` additional bytes for scalar fields. Despite
+/// the `lean_object *` element type, the trailing bytes are not pointers —
+/// the C API accesses them by casting to `uint8_t*` and indexing by byte
+/// offset. `lean_ctor_obj_cptr` returns `&m_objs[0]`; all offsets in the
+/// accessor API are relative to this address.
+///
+/// # Constructor field kinds
+///
+/// Lean constructor fields are either:
+///
+/// - **Object fields**: `lean_object*` values — either a pointer to a heap
+///   object (lowest bit 0) or a boxed immediate value (lowest bit 1).
+///
+/// - **Scalar fields**: values stored inline as their unboxed C types
+///   (`uint8_t`, `uint32_t`, `double`, etc.) rather than as `lean_object*`.
+///   For example, `Bool` is stored as an unboxed `uint8_t` when it appears
+///   directly in a `lean_ctor_object`, but
+///   as a boxed `lean_object*` in polymorphic contexts like `Array Bool`.
+///
+/// # Data area layout
+///
+/// **Important:** Lean reorders fields by kind and size, so the memory layout
+/// may differ from the declaration order in Lean source. The data area
+/// (accessed via `lean_ctor_obj_cptr`) is laid out as three regions, following
+/// the terminology from the
+/// [Lean reference manual](https://lean-lang.org/doc/reference/latest/):
+///
+/// 1. **Object fields** — pointer-width `lean_object*` entries, one per field
+///    ("fields of the first kind")
+/// 2. **`USize` fields** — pointer-width `usize` entries, one per field
+///    ("fields of the second kind"); together with object fields these form
+///    a contiguous array of pointer-width entries
+/// 3. **Fixed-size scalar fields** — laid out in descending size order
+///    (u64/f64, u32/f32, u16, u8/bool)
+///
+/// For example, a Lean structure declared as:
+/// ```text
+/// structure Foo where
+///   name : String     -- object field
+///   flag : Bool       -- scalar (u8)
+///   count : UInt64    -- scalar (u64)
+///   size : USize      -- usize field
+/// ```
+/// is reordered and laid out as (assuming 64-bit pointers):
+/// ```text
+/// lean_ctor_obj_cptr ──>
+///   byte 0..7:   name  (lean_object*)   ← m_objs[0], object field
+///   byte 8..15:  size  (usize)          ← m_objs[1], USize field
+///   byte 16..23: count (u64)            ← scalar field
+///   byte 24:     flag  (u8)             ← scalar field
+/// ```
+/// `lean_alloc_ctor(tag, num_objs=1, scalar_sz=9)` allocates enough space
+/// for the header, 1 object pointer, and 9 scalar bytes (8 for the USize
+/// entry + 8 for the u64 + 1 for the u8). The scalar fields live past the
+/// end of the pointer-width entries; the C API accesses them by casting
+/// `lean_ctor_obj_cptr` to `uint8_t*` and indexing by byte offset.
+///
+/// # Offset conventions
+///
+/// For fixed-size scalar types (`u8`–`u64`, `f32`, `f64`, `bool`), the
+/// `LeanCtor` methods take `offset` as an **absolute byte offset** from
+/// `lean_ctor_obj_cptr` — the same convention as the Lean C API functions
+/// `lean_ctor_get_uint8`, `lean_ctor_set_uint32`, etc.
+///
+/// For `usize`, the accessor indexes into the pointer-width entry array
+/// described above. The index is relative to the first `USize` entry;
+/// the object field count is read from the header and added internally, so
+/// `get_usize(0)` reads the first `USize` field.
+///
+/// Reading all fields of `Foo` in C vs. via [`lean_inductive!`](crate::lean_inductive)
+/// (which computes byte offsets from declared field counts):
+///
+/// ```c
+/// // C — `lean_ctor_get`/`get_usize` take a pointer-sized field index;
+/// // `lean_ctor_get_uint*` takes an absolute byte offset from `lean_ctor_obj_cptr`.
+/// lean_object* name = lean_ctor_get(o, 0);          // object field 0
+/// size_t       size  = lean_ctor_get_usize(o, 1);    // USize field at index (num_objs + 0)
+/// uint64_t     count = lean_ctor_get_uint64(o, 16);  // (1 obj + 1 usize) * 8
+/// uint8_t      flag  = lean_ctor_get_uint8(o, 24);   // 16 + sizeof(uint64_t)
+/// ```
+///
+/// ```ignore
+/// // Rust — from a `lean_inductive! { LeanFoo [ { num_obj: 1, num_usize: 1,
+/// //                                              num_64: 1, num_8: 1 } ] }`:
+/// let name  = foo.get_obj(0);
+/// let size  = foo.get_usize(0);
+/// let count = foo.get_num_64(0);
+/// let flag  = foo.get_num_8(0);
+/// ```
 #[repr(transparent)]
 pub struct LeanCtor<R: LeanRef>(R);
 
@@ -921,9 +1030,8 @@ impl<R: LeanRef> LeanCtor<R> {
 
     /// Get a borrowed reference to the `i`-th object field.
     pub fn get(&self, i: usize) -> LeanBorrowed<'_> {
-        #[allow(clippy::cast_possible_truncation)]
         LeanBorrowed(
-            unsafe { include::lean_ctor_get(self.0.as_raw(), i as u32) },
+            unsafe { include::lean_ctor_get(self.0.as_raw(), to_u32(i)) },
             PhantomData,
         )
     }
@@ -937,56 +1045,97 @@ impl<R: LeanRef> LeanCtor<R> {
     // -------------------------------------------------------------------------
     // Scalar field readers
     // -------------------------------------------------------------------------
-    //
-    // `num_objs` is the number of non-scalar fields (object + usize) preceding
-    // the scalar area. `offset` is a byte offset within the scalar area.
-    // For `get_usize`, `slot` is a slot index (not byte offset).
 
-    /// Compute the absolute byte offset for a scalar field.
-    #[allow(clippy::cast_possible_truncation)]
+    /// Number of object fields, read from the constructor header.
     #[inline]
-    fn scalar_offset(num_objs: usize, offset: usize) -> u32 {
-        (num_objs * 8 + offset) as u32
+    pub fn num_objs(&self) -> usize {
+        unsafe { include::lean_ctor_num_objs(self.0.as_raw()) as usize }
     }
 
-    pub fn get_u8(&self, num_objs: usize, offset: usize) -> u8 {
+    /// All scalar accessors below take `offset` as an absolute byte offset
+    /// from `lean_ctor_obj_cptr`, matching the Lean C API convention for
+    /// `lean_ctor_get_uint8`, `lean_ctor_get_uint32`, etc.
+    pub fn get_u8(&self, offset: usize) -> u8 {
+        unsafe { include::lean_ctor_get_uint8(self.0.as_raw(), to_u32(offset)) }
+    }
+    pub fn get_u16(&self, offset: usize) -> u16 {
+        unsafe { include::lean_ctor_get_uint16(self.0.as_raw(), to_u32(offset)) }
+    }
+    pub fn get_u32(&self, offset: usize) -> u32 {
+        unsafe { include::lean_ctor_get_uint32(self.0.as_raw(), to_u32(offset)) }
+    }
+    pub fn get_u64(&self, offset: usize) -> u64 {
+        unsafe { include::lean_ctor_get_uint64(self.0.as_raw(), to_u32(offset)) }
+    }
+    pub fn get_f64(&self, offset: usize) -> f64 {
+        unsafe { include::lean_ctor_get_float(self.0.as_raw(), to_u32(offset)) }
+    }
+    pub fn get_f32(&self, offset: usize) -> f32 {
+        unsafe { include::lean_ctor_get_float32(self.0.as_raw(), to_u32(offset)) }
+    }
+    /// Read a `USize` field. `USize` fields occupy pointer-width entries in
+    /// the data area right after object fields. `index` is relative to
+    /// the first `USize` entry; the object field count is read from the header
+    /// and added internally.
+    pub fn get_usize(&self, index: usize) -> usize {
+        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), to_u32(self.num_objs() + index)) }
+    }
+    /// Read a single `Bool` scalar field (`uint8_t`).
+    /// Returns `true` if the byte is non-zero.
+    pub fn get_bool(&self, offset: usize) -> bool {
+        self.get_u8(offset) != 0
+    }
+
+    // -------------------------------------------------------------------------
+    // Scalar field setters
+    // -------------------------------------------------------------------------
+    //
+    // All setters take `offset` as an absolute byte offset from
+    // `lean_ctor_obj_cptr`, matching the Lean C API convention.
+    // Available on all R: LeanRef (not restricted to LeanOwned).
+
+    pub fn set_u8(&self, offset: usize, val: u8) {
         unsafe {
-            include::lean_ctor_get_uint8(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_uint8(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn get_u16(&self, num_objs: usize, offset: usize) -> u16 {
+    pub fn set_u16(&self, offset: usize, val: u16) {
         unsafe {
-            include::lean_ctor_get_uint16(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_uint16(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn get_u32(&self, num_objs: usize, offset: usize) -> u32 {
+    pub fn set_u32(&self, offset: usize, val: u32) {
         unsafe {
-            include::lean_ctor_get_uint32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_uint32(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn get_u64(&self, num_objs: usize, offset: usize) -> u64 {
+    pub fn set_u64(&self, offset: usize, val: u64) {
         unsafe {
-            include::lean_ctor_get_uint64(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_uint64(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn get_f64(&self, num_objs: usize, offset: usize) -> f64 {
+    pub fn set_f64(&self, offset: usize, val: f64) {
         unsafe {
-            include::lean_ctor_get_float(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_float(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    pub fn get_f32(&self, num_objs: usize, offset: usize) -> f32 {
+    pub fn set_f32(&self, offset: usize, val: f32) {
         unsafe {
-            include::lean_ctor_get_float32(self.0.as_raw(), Self::scalar_offset(num_objs, offset))
+            include::lean_ctor_set_float32(self.0.as_raw(), to_u32(offset), val);
         }
     }
-    /// Read a `usize` at slot `slot` past `num_objs` object fields.
-    /// Uses a **slot index** (not byte offset).
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn get_usize(&self, num_objs: usize, slot: usize) -> usize {
-        unsafe { include::lean_ctor_get_usize(self.0.as_raw(), (num_objs + slot) as u32) }
+    /// Set a `USize` field. `USize` fields occupy pointer-width entries in
+    /// the data area right after object fields. `index` is relative to
+    /// the first `USize` entry; the object field count is read from the header
+    /// and added internally.
+    pub fn set_usize(&self, index: usize, val: usize) {
+        unsafe {
+            include::lean_ctor_set_usize(self.0.as_raw(), to_u32(self.num_objs() + index), val);
+        }
     }
-    pub fn get_bool(&self, num_objs: usize, offset: usize) -> bool {
-        self.get_u8(num_objs, offset) != 0
+    /// Write a single `Bool` scalar field (`uint8_t`, 0 or 1).
+    pub fn set_bool(&self, offset: usize, val: bool) {
+        self.set_u8(offset, val as u8);
     }
 }
 
@@ -1003,18 +1152,17 @@ impl LeanCtor<LeanOwned> {
 
     /// Allocate a new constructor object.
     pub fn alloc(tag: u8, num_objs: usize, scalar_size: usize) -> Self {
-        #[allow(clippy::cast_possible_truncation)]
-        let obj =
-            unsafe { include::lean_alloc_ctor(tag as u32, num_objs as u32, scalar_size as u32) };
+        let obj = unsafe {
+            include::lean_alloc_ctor(u32::from(tag), to_u32(num_objs), to_u32(scalar_size))
+        };
         Self(LeanOwned(obj))
     }
 
     /// Set the `i`-th object field. Takes ownership of `val`.
     pub fn set(&self, i: usize, val: impl Into<LeanOwned>) {
         let val: LeanOwned = val.into();
-        #[allow(clippy::cast_possible_truncation)]
         unsafe {
-            include::lean_ctor_set(self.0.as_raw(), i as u32, val.into_raw());
+            include::lean_ctor_set(self.0.as_raw(), to_u32(i), val.into_raw());
         }
     }
 
@@ -1026,76 +1174,6 @@ impl LeanCtor<LeanOwned> {
         std::mem::forget(self);
         ptr
     }
-
-    // -------------------------------------------------------------------------
-    // Scalar field setters (owned only — mutation)
-    // -------------------------------------------------------------------------
-
-    pub fn set_u8(&self, num_objs: usize, offset: usize, val: u8) {
-        unsafe {
-            include::lean_ctor_set_uint8(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    pub fn set_u16(&self, num_objs: usize, offset: usize, val: u16) {
-        unsafe {
-            include::lean_ctor_set_uint16(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    pub fn set_u32(&self, num_objs: usize, offset: usize, val: u32) {
-        unsafe {
-            include::lean_ctor_set_uint32(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    pub fn set_u64(&self, num_objs: usize, offset: usize, val: u64) {
-        unsafe {
-            include::lean_ctor_set_uint64(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    pub fn set_f64(&self, num_objs: usize, offset: usize, val: f64) {
-        unsafe {
-            include::lean_ctor_set_float(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    pub fn set_f32(&self, num_objs: usize, offset: usize, val: f32) {
-        unsafe {
-            include::lean_ctor_set_float32(
-                self.0.as_raw(),
-                Self::scalar_offset(num_objs, offset),
-                val,
-            );
-        }
-    }
-    /// Set a `usize` at slot `slot` past `num_objs` object fields.
-    /// Uses a **slot index** (not byte offset).
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn set_usize(&self, num_objs: usize, slot: usize, val: usize) {
-        unsafe {
-            include::lean_ctor_set_usize(self.0.as_raw(), (num_objs + slot) as u32, val);
-        }
-    }
-    pub fn set_bool(&self, num_objs: usize, offset: usize, val: bool) {
-        self.set_u8(num_objs, offset, val as u8);
-    }
 }
 
 impl From<LeanCtor<LeanOwned>> for LeanOwned {
@@ -1106,6 +1184,86 @@ impl From<LeanCtor<LeanOwned>> for LeanOwned {
         std::mem::forget(x);
         LeanOwned(ptr)
     }
+}
+
+// =============================================================================
+// LeanCtorLayout — layout metadata for structures and inductive variants
+// =============================================================================
+
+/// Memory layout of a single Lean constructor (one `structure` or one variant
+/// of an `inductive`): counts of object, `USize`, and 64/32/16/8-bit scalar
+/// fields.
+///
+/// Fields are laid out in the order: object → `USize` → descending scalar size
+/// (8B → 4B → 2B → 1B). Within a size, Lean preserves declaration order.
+///
+/// The tag is not stored here — it's the index of this layout in the owning
+/// type's [`LeanCtorLayout::LAYOUTS`] slice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SingleCtorLayout {
+    pub num_obj: usize,
+    pub num_usize: usize,
+    pub num_64: usize,
+    pub num_32: usize,
+    pub num_16: usize,
+    pub num_8: usize,
+}
+
+impl SingleCtorLayout {
+    pub const ZERO: Self = Self {
+        num_obj: 0,
+        num_usize: 0,
+        num_64: 0,
+        num_32: 0,
+        num_16: 0,
+        num_8: 0,
+    };
+
+    /// `scalar_sz` argument for `lean_alloc_ctor`: total bytes needed for all
+    /// fixed-size scalar fields after the object and `USize` fields.
+    #[inline]
+    pub const fn scalar_size(&self) -> usize {
+        self.num_usize * size_of::<usize>()
+            + self.num_64 * 8
+            + self.num_32 * 4
+            + self.num_16 * 2
+            + self.num_8
+    }
+
+    /// Byte offset from `lean_ctor_obj_cptr` to the first fixed-size scalar
+    /// field, skipping the preceding object and `USize` fields.
+    #[inline]
+    pub const fn scalar_base(&self) -> usize {
+        (self.num_obj + self.num_usize) * size_of::<usize>()
+    }
+
+    #[inline]
+    pub const fn offset_64(&self, i: usize) -> usize {
+        self.scalar_base() + i * 8
+    }
+    #[inline]
+    pub const fn offset_32(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + i * 4
+    }
+    #[inline]
+    pub const fn offset_16(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + self.num_32 * 4 + i * 2
+    }
+    #[inline]
+    pub const fn offset_8(&self, i: usize) -> usize {
+        self.scalar_base() + self.num_64 * 8 + self.num_32 * 4 + self.num_16 * 2 + i
+    }
+}
+
+/// Per-constructor layouts for a Lean `structure` or `inductive`.
+///
+/// `LAYOUTS[tag]` is the [`SingleCtorLayout`] for the constructor with that
+/// Lean tag. A `structure` yields a 1-element slice (tag 0); an `inductive`
+/// yields one entry per variant in declaration order.
+///
+/// Implemented automatically by [`lean_inductive!`](crate::lean_inductive).
+pub trait LeanCtorLayout {
+    const LAYOUTS: &'static [SingleCtorLayout];
 }
 
 // =============================================================================
@@ -1910,5 +2068,111 @@ impl LeanRef for LeanShared {
     #[inline]
     fn as_raw(&self) -> *mut include::lean_object {
         self.0.as_raw()
+    }
+}
+
+// =============================================================================
+// Unit tests for layout math (no Lean runtime needed)
+// =============================================================================
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn zero_layout_has_zero_size() {
+        let z = SingleCtorLayout::ZERO;
+        assert_eq!(z.num_obj, 0);
+        assert_eq!(z.scalar_size(), 0);
+        assert_eq!(z.scalar_base(), 0);
+    }
+
+    #[test]
+    fn scalar_size_sums_all_scalar_sizes() {
+        let l = SingleCtorLayout {
+            num_obj: 0,
+            num_usize: 2,
+            num_64: 3,
+            num_32: 4,
+            num_16: 5,
+            num_8: 7,
+        };
+        let expected = 2 * size_of::<usize>() + 3 * 8 + 4 * 4 + 5 * 2 + 7;
+        assert_eq!(l.scalar_size(), expected);
+    }
+
+    #[test]
+    fn scalar_base_skips_obj_and_usize() {
+        let l = SingleCtorLayout {
+            num_obj: 3,
+            num_usize: 2,
+            ..SingleCtorLayout::ZERO
+        };
+        // 3 object fields + 2 USize fields, all pointer-width
+        assert_eq!(l.scalar_base(), 5 * size_of::<usize>());
+    }
+
+    #[test]
+    fn offsets_stack_by_descending_size() {
+        let l = SingleCtorLayout {
+            num_obj: 1,
+            num_usize: 1,
+            num_64: 2,
+            num_32: 2,
+            num_16: 1,
+            num_8: 3,
+        };
+        let base = l.scalar_base();
+        // 8-byte scalars start at `base`.
+        assert_eq!(l.offset_64(0), base);
+        assert_eq!(l.offset_64(1), base + 8);
+        // 4-byte scalars start after 2 u64s.
+        assert_eq!(l.offset_32(0), base + 16);
+        assert_eq!(l.offset_32(1), base + 16 + 4);
+        // 2-byte scalars start after 2 u64s + 2 u32s.
+        assert_eq!(l.offset_16(0), base + 16 + 8);
+        // 1-byte scalars start after 2 u64s + 2 u32s + 1 u16.
+        assert_eq!(l.offset_8(0), base + 16 + 8 + 2);
+        assert_eq!(l.offset_8(2), base + 16 + 8 + 2 + 2);
+    }
+
+    #[test]
+    fn offsets_skip_absent_scalar_sizes() {
+        // u64 + u8, no u32/u16 fields.
+        let l = SingleCtorLayout {
+            num_64: 1,
+            num_8: 1,
+            ..SingleCtorLayout::ZERO
+        };
+        assert_eq!(l.offset_64(0), 0);
+        // u8 sits immediately after the u64: no u32/u16 to skip.
+        assert_eq!(l.offset_8(0), 8);
+        assert_eq!(l.scalar_size(), 8 + 1);
+    }
+
+    #[test]
+    fn layout_slice_is_usable_in_const_context() {
+        // Confirms SingleCtorLayout can be read through LeanCtorLayout in const
+        // code — this is what the generated accessor methods rely on.
+        struct Marker;
+        impl LeanCtorLayout for Marker {
+            const LAYOUTS: &'static [SingleCtorLayout] = &[
+                SingleCtorLayout {
+                    num_obj: 1,
+                    ..SingleCtorLayout::ZERO
+                },
+                SingleCtorLayout {
+                    num_64: 2,
+                    ..SingleCtorLayout::ZERO
+                },
+            ];
+        }
+        const L0: SingleCtorLayout = <Marker as LeanCtorLayout>::LAYOUTS[0];
+        const L1: SingleCtorLayout = <Marker as LeanCtorLayout>::LAYOUTS[1];
+        const OFF: usize = L1.offset_64(1);
+
+        assert_eq!(L0.num_obj, 1);
+        assert_eq!(L1.num_64, 2);
+        assert_eq!(OFF, 8);
     }
 }

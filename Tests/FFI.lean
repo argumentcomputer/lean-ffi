@@ -64,6 +64,28 @@ opaque roundtripExtScalarStruct : @& ExtScalarStruct → ExtScalarStruct
 @[extern "rs_roundtrip_usize_struct"]
 opaque roundtripUSizeStruct : @& USizeStruct → USizeStruct
 
+@[extern "rs_roundtrip_usize_mixed_struct"]
+opaque roundtripUSizeMixedStruct : @& USizeMixedStruct → USizeMixedStruct
+
+@[extern "rs_roundtrip_bool_struct"]
+opaque roundtripBoolStruct : @& BoolStruct → BoolStruct
+
+
+@[extern "rs_roundtrip_multi_u32_struct"]
+opaque roundtripMultiU32Struct : @& MultiU32Struct → MultiU32Struct
+
+@[extern "rs_roundtrip_test_inductive"]
+opaque roundtripTestInductive : @& TestInductive → TestInductive
+
+@[extern "rs_roundtrip_outer"]
+opaque roundtripOuter : @& Outer → Outer
+
+@[extern "rs_roundtrip_inductive_holder"]
+opaque roundtripInductiveHolder : @& InductiveHolder → InductiveHolder
+
+@[extern "rs_roundtrip_struct_in_variant"]
+opaque roundtripStructInVariant : @& StructInVariant → StructInVariant
+
 @[extern "rs_roundtrip_float"]
 opaque roundtripFloat : Float → Float
 
@@ -359,6 +381,34 @@ def borrowedRoundtripTests : TestSeq :=
   test "ExtScalarStruct max" (show Bool from roundtripExtScalarStruct ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩ == ⟨100, 0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 1.0, 1.0⟩) ++
   test "USizeStruct zeros" (roundtripUSizeStruct ⟨0, 0, 0⟩ == ⟨0, 0, 0⟩) ++
   test "USizeStruct mixed" (roundtripUSizeStruct ⟨42, 99, 255⟩ == ⟨42, 99, 255⟩) ++
+  -- USizeMixedStruct declaration order: obj, u64val, bval, uval, u32val
+  test "USizeMixedStruct zeros" (roundtripUSizeMixedStruct ⟨0, 0, false, 0, 0⟩ == ⟨0, 0, false, 0, 0⟩) ++
+  test "USizeMixedStruct mixed" (roundtripUSizeMixedStruct ⟨42, 0xFFFFFFFFFFFFFFFF, true, 99, 0xFFFFFFFF⟩ == ⟨42, 0xFFFFFFFFFFFFFFFF, true, 99, 0xFFFFFFFF⟩) ++
+  test "BoolStruct all false" (roundtripBoolStruct ⟨0, false, false, false⟩ == ⟨0, false, false, false⟩) ++
+  test "BoolStruct all true" (roundtripBoolStruct ⟨42, true, true, true⟩ == ⟨42, true, true, true⟩) ++
+  test "BoolStruct mixed" (roundtripBoolStruct ⟨7, true, false, true⟩ == ⟨7, true, false, true⟩) ++
+  test "MultiU32Struct zeros" (roundtripMultiU32Struct ⟨0, 0, 0, 0⟩ == ⟨0, 0, 0, 0⟩) ++
+  test "MultiU32Struct max" (roundtripMultiU32Struct ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩ == ⟨100, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF⟩) ++
+  test "MultiU32Struct mixed" (roundtripMultiU32Struct ⟨1, 42, 0, 99⟩ == ⟨1, 42, 0, 99⟩) ++
+  -- TestInductive: multi-variant inductive with non-zero tags
+  test "TestInductive empty" (roundtripTestInductive .empty == .empty) ++
+  test "TestInductive withScalars" (roundtripTestInductive (.withScalars 42 99) == .withScalars 42 99) ++
+  test "TestInductive withScalars max" (roundtripTestInductive (.withScalars 0xFFFFFFFFFFFFFFFF 0) == .withScalars 0xFFFFFFFFFFFFFFFF 0) ++
+  test "TestInductive withMixed" (roundtripTestInductive (.withMixed 7 0xFFFFFFFF true) == .withMixed 7 0xFFFFFFFF true) ++
+  test "TestInductive withMixed false" (roundtripTestInductive (.withMixed 0 0 false) == .withMixed 0 0 false) ++
+  -- Outer: structure containing another structure
+  test "Outer zeros" (roundtripOuter ⟨⟨0, 0, 0, 0⟩, "", 0⟩ == ⟨⟨0, 0, 0, 0⟩, "", 0⟩) ++
+  test "Outer mixed" (roundtripOuter ⟨⟨42, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩, "hello", 99⟩ == ⟨⟨42, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩, "hello", 99⟩) ++
+  -- InductiveHolder: structure containing an inductive
+  test "InductiveHolder empty" (roundtripInductiveHolder ⟨.empty, 0⟩ == ⟨.empty, 0⟩) ++
+  test "InductiveHolder withScalars" (roundtripInductiveHolder ⟨.withScalars 10 20, 42⟩ == ⟨.withScalars 10 20, 42⟩) ++
+  test "InductiveHolder withMixed" (roundtripInductiveHolder ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩ == ⟨.withMixed 7 99 true, 0xFFFFFFFF⟩) ++
+  -- StructInVariant: inductive whose variants contain structures
+  test "StructInVariant empty" (roundtripStructInVariant .empty == .empty) ++
+  test "StructInVariant withPoint zeros" (roundtripStructInVariant (.withPoint ⟨0, 0⟩) == .withPoint ⟨0, 0⟩) ++
+  test "StructInVariant withPoint mixed" (roundtripStructInVariant (.withPoint ⟨42, 99⟩) == .withPoint ⟨42, 99⟩) ++
+  test "StructInVariant withScalar zeros" (roundtripStructInVariant (.withScalar ⟨0, 0, 0, 0⟩ 0) == .withScalar ⟨0, 0, 0, 0⟩ 0) ++
+  test "StructInVariant withScalar max" (roundtripStructInVariant (.withScalar ⟨1, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ 0xFFFFFFFF) == .withScalar ⟨1, 0xFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF⟩ 0xFFFFFFFF) ++
   test "External all fields" (externalAllFields (mkRustData 42 99 "hello") == "42:99:hello") ++
   test "External all fields zeros" (externalAllFields (mkRustData 0 0 "") == "0:0:") ++
   test "External large u64" (rustDataGetX (mkRustData 0xFFFFFFFFFFFFFFFF 0 "test") == 0xFFFFFFFFFFFFFFFF) ++
