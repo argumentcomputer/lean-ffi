@@ -68,8 +68,8 @@
               pkgs.libiconv
             ];
         };
-        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked";});
-        rustPkgTest = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --features test-ffi";});
+        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --workspace";});
+        rustPkgTest = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked -p lean-ffi --features test-ffi";});
 
         # Lake test package
         lake2nix = pkgs.callPackage lean4-nix.lake {};
