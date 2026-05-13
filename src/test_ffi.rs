@@ -10,7 +10,7 @@
 use std::sync::LazyLock;
 
 use crate::include;
-use crate::nat::Nat;
+use crate::nat::{Nat, NatExt};
 use crate::object::{
     ExternalClass, LeanArray, LeanBool, LeanBorrowed, LeanByteArray, LeanCtor, LeanExcept,
     LeanExternal, LeanIOResult, LeanList, LeanNat, LeanOption, LeanOwned, LeanProd, LeanRef,
