@@ -1,10 +1,19 @@
 [workspace]
 members = ["bignat"]
 
-[package]
-name = "lean-ffi"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+num-bigint = "0.4.6"
+
+[package]
+name = "lean-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["lib", "staticlib"]
@@ -14,7 +23,7 @@ test-ffi = []
 
 [dependencies]
 bignat = { path = "bignat" }
-num-bigint = "0.4.6"
+num-bigint.workspace = true
 
 [build-dependencies]
 bindgen = "0.72"
