@@ -2,8 +2,9 @@
 //!
 //! This crate holds the generic `Nat` type used across projects that need a
 //! `BigUint`-shaped natural number without taking a dependency on Lean. The
-//! `lean-ffi` crate re-exports this `Nat` and extends it with Lean-side
-//! decode/encode via an extension trait.
+//! `lean-ffi` crate re-exports this `Nat`; the corresponding Lean-side
+//! decode/encode lives there as inherent methods on `LeanNat<LeanOwned>`
+//! (`from_nat` / `to_nat`).
 
 use std::fmt;
 
