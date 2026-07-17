@@ -1,6 +1,15 @@
 {
   description = "lean-ffi Nix flake (Lean4 + Rust)";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://argumentcomputer.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "argumentcomputer.cachix.org-1:ovhbTx1V56BYDerOWInQvXKXl68LlhNwEA+n7EWk1m4="
+    ];
+  };
+
   inputs = {
     # System packages, follows lean4-nix so we stay in sync
     nixpkgs.follows = "lean4-nix/nixpkgs";
@@ -68,8 +77,13 @@
               pkgs.libiconv
             ];
         };
-        rustPkg = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked --workspace";});
-        rustPkgTest = craneLib.buildPackage (craneArgs // {cargoExtraArgs = "--locked -p lean-ffi --features test-ffi";});
+        # Build dependencies once and share them across the package build, the
+        # test static lib, and the clippy check instead of recompiling per consumer.
+        cargoArtifacts = craneLib.buildDepsOnly craneArgs;
+        rustPkg = craneLib.buildPackage (craneArgs // {inherit cargoArtifacts; cargoExtraArgs = "--locked --workspace";});
+        # Static lib for the Lean FFI test suite; the Lean `lean-ffi-test` check
+        # is where that suite runs, so skip the Rust checkPhase here.
+        rustPkgTest = craneLib.buildPackage (craneArgs // {inherit cargoArtifacts; cargoExtraArgs = "--locked -p lean-ffi --features test-ffi"; doCheck = false;});
 
         # Lake test package
         lake2nix = pkgs.callPackage lean4-nix.lake {};
@@ -97,7 +111,20 @@
 
         packages = {
           default = rustPkg;
-          test = lakeTest;
+        };
+
+        checks = {
+          # Lint the Rust workspace; warnings are errors.
+          clippy = craneLib.cargoClippy (craneArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
+            });
+          # Build and run the Lean FFI test suite as a flake check.
+          lean-ffi-test = pkgs.runCommand "lean-ffi-test" {} ''
+            ${lakeTest}/bin/LeanFFITests
+            touch $out
+          '';
         };
 
         # Provide a unified dev shell with Lean + Rust
