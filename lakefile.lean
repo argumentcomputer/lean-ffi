@@ -5,7 +5,7 @@ package «lean-ffi-test» where
   version := v!"0.1.0"
 
 require LSpec from git
-  "https://github.com/argumentcomputer/LSpec" @ "d3c15b93a1dd4e7c8d5c0c3825c9555737e55c3e"
+  "https://github.com/argumentcomputer/LSpec" @ "3e23a4ad2e91eaf07845cecad157b7ffbb437aed"
 
 section FFI
 
@@ -22,6 +22,6 @@ end FFI
 
 lean_lib Tests
 
-@[test_driver]
+@[default_target, test_driver]
 lean_exe LeanFFITests where
   root := `Tests.Main
