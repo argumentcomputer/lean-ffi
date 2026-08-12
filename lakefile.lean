@@ -5,7 +5,7 @@ package «lean-ffi-test» where
   version := v!"0.1.0"
 
 require LSpec from git
-  "https://github.com/argumentcomputer/LSpec" @ "3e23a4ad2e91eaf07845cecad157b7ffbb437aed"
+  "https://github.com/argumentcomputer/LSpec" @ "e780f4188c9649aef988270f4d126651460ca9c4"
 
 section FFI
 
