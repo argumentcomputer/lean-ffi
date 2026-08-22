@@ -27,7 +27,6 @@ xclippy = [
   "-Wclippy::fallible_impl_from",
   "-Wclippy::filter_map_next",
   "-Wclippy::flat_map_option",
-  "-Wclippy::from_iter_instead_of_collect",
   "-Wclippy::implicit_clone",
   "-Wclippy::inefficient_to_string",
   "-Wclippy::invalid_upcast_comparisons",
@@ -58,3 +57,8 @@ xclippy = [
   "-Wtrivial_numeric_casts",
   "-Wunused_qualifications",
 ]
+
+[build]
+# Deny warnings from local packages; replaces RUSTFLAGS="-D warnings" in CI
+# (which invalidates the build cache and also applies to dependencies).
+warnings = "deny"

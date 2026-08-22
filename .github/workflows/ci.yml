@@ -19,6 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Warning handling lives in `.cargo/config.toml` via `build.warnings`,
+          # which applies to local packages only. The action defaults to
+          # `-D warnings`, which also denies warnings from dependencies.
+          rustflags: ""
       # Simpler to install Lean than to use lean-action for only this purpose.
       - name: Install Lean
         run: |
