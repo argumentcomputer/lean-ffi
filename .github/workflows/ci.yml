@@ -13,6 +13,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+# Fail every cargo invocation on warnings from workspace-local packages
+# (cargo's build.warnings, stable since 1.97). CI-only: local builds
+# still just warn.
+env:
+  CARGO_BUILD_WARNINGS: deny
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,9 +26,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          # Warning handling lives in `.cargo/config.toml` via `build.warnings`,
-          # which applies to local packages only. The action defaults to
-          # `-D warnings`, which also denies warnings from dependencies.
+          # Warnings are handled by CARGO_BUILD_WARNINGS above, which applies
+          # to local packages only. The action defaults to `-D warnings`,
+          # which also denies warnings from dependencies.
           rustflags: ""
       # Simpler to install Lean than to use lean-action for only this purpose.
       - name: Install Lean
@@ -32,7 +38,7 @@ jobs:
       - name: Check Rustfmt code style
         uses: actions-rust-lang/rustfmt@v1
       - name: Check clippy warnings
-        run: cargo xclippy
+        run: cargo clippy --workspace --all-targets --all-features
       - name: Check *everything* compiles
         run: cargo check --workspace --all-targets --all-features
       - name: Run workspace tests

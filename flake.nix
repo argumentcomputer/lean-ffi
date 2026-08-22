@@ -127,12 +127,13 @@
           };
 
           checks = {
-            # Lint the Rust workspace; `build.warnings` in .cargo/config.toml
-            # promotes warnings to errors.
+            # Lint the Rust workspace; the lint set lives in Cargo.toml and
+            # CARGO_BUILD_WARNINGS promotes local-package warnings to errors.
             clippy = craneLib.cargoClippy (
               craneArgs
               // {
                 inherit cargoArtifacts;
+                CARGO_BUILD_WARNINGS = "deny";
                 cargoClippyExtraArgs = "--workspace --all-targets --all-features";
               }
             );
