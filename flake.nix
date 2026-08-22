@@ -60,7 +60,7 @@
           # Pins the Rust toolchain
           rustToolchain = fenix.packages.${system}.fromToolchainFile {
             file = ./rust-toolchain.toml;
-            sha256 = "sha256-sqSWJDUxc+zaz1nBWMAJKTAGBuGWP25GCftIOlCEAtA=";
+            sha256 = "sha256-P30Tm3O7vQAE725YtDCDHGjNrSsfZO4us11UwJGZSJo=";
           };
 
           # Rust package
@@ -127,12 +127,14 @@
           };
 
           checks = {
-            # Lint the Rust workspace; warnings are errors.
+            # Lint the Rust workspace; the lint set lives in Cargo.toml and
+            # CARGO_BUILD_WARNINGS promotes local-package warnings to errors.
             clippy = craneLib.cargoClippy (
               craneArgs
               // {
                 inherit cargoArtifacts;
-                cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
+                CARGO_BUILD_WARNINGS = "deny";
+                cargoClippyExtraArgs = "--workspace --all-targets --all-features";
               }
             );
             # Build and run the Lean FFI test suite as a flake check.
