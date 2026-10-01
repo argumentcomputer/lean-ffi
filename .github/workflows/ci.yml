@@ -24,8 +24,8 @@ jobs:
       # Simpler to install Lean than to use lean-action for only this purpose.
       - name: Install Lean
         run: |
-          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain $(cat lean-toolchain)
-          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain "$(cat lean-toolchain)"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: Check Rustfmt code style
         uses: actions-rust-lang/rustfmt@4066006ec54a31931b9b1fddfd38f2fdf2d27143 # v1.1.2
       - name: Check clippy warnings
