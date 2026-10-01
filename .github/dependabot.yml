@@ -6,6 +6,8 @@ updates:
       separator: "-"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       rust-dependencies:
         patterns:
@@ -23,6 +25,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       actions-dependencies:
         patterns:
