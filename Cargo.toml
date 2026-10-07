@@ -7,7 +7,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-num-bigint = "0.4.6"
+num-bigint = "0.5.1"
 
 [workspace.lints.rust]
 invalid_reference_casting = "warn"
