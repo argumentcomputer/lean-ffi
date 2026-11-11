@@ -83,6 +83,7 @@ num-bigint.workspace = true
 [build-dependencies]
 bindgen = "0.72"
 cc = "1"
+clang-sys = "1"
 
 [lints]
 workspace = true

@@ -120,6 +120,7 @@ dependencies = [
  "bignat",
  "bindgen",
  "cc",
+ "clang-sys",
  "num-bigint",
 ]
 
