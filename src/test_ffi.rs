@@ -271,6 +271,29 @@ pub(crate) extern "C" fn rs_io_result_error_string(
     LeanIOResult::error_string(&s.to_string())
 }
 
+/// Return the number of object fields in an `EStateM.Result` constructor.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_io_result_num_objs(result: LeanIOResult<LeanBorrowed<'_>>) -> u32 {
+    unsafe { include::lean_ctor_num_objs(result.as_raw()) }
+}
+
+/// `IO Nat` action returning `LeanIOResult::ok`.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_io_action_ok_nat(
+    nat_ptr: LeanNat<LeanBorrowed<'_>>,
+) -> LeanIOResult<LeanOwned> {
+    let nat = LeanNat::to_nat(nat_ptr.inner());
+    LeanIOResult::ok(build_nat(&nat))
+}
+
+/// `IO Nat` action returning `LeanIOResult::error_string`.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn rs_io_action_error_string(
+    s: LeanString<LeanBorrowed<'_>>,
+) -> LeanIOResult<LeanOwned> {
+    LeanIOResult::error_string(s.as_str())
+}
+
 // =============================================================================
 // LeanCtor scalar fields
 // =============================================================================
@@ -1042,7 +1065,7 @@ pub(crate) extern "C" fn rs_owned_prod_roundtrip(pair: LeanProd<LeanOwned>) -> L
 pub(crate) extern "C" fn rs_owned_io_result_value(
     result: LeanIOResult<LeanOwned>,
 ) -> LeanNat<LeanOwned> {
-    // IOResult ok = tag 0, fields: [value, world]; error = tag 1
+    // IOResult ok = tag 0, 1 obj field [value]; error = tag 1, 1 obj field [error]
     let ctor = result.as_ctor();
     if ctor.tag() == 0 {
         LeanNat::from_nat(&LeanNat::to_nat(&ctor.get(0)))
@@ -1520,6 +1543,13 @@ pub(crate) extern "C" fn rs_alloc_drop_stress(_unit: LeanBorrowed<'_>) -> u8 {
 
     // Nat (heap-allocated, not scalar)
     let _nat = LeanOwned::from_nat_u64(u64::MAX);
+
+    // IO results (ok and userError)
+    let _io_ok = LeanIOResult::ok(LeanOwned::from_nat_u64(u64::MAX));
+    let _io_err = LeanIOResult::error_string("allocated and dropped error");
+
+    // String with interior NUL byte
+    let _nul_str = LeanString::new("a\0b");
 
     // All variables drop here at end of scope
     1

@@ -55,6 +55,15 @@ opaque ioResultOkNat : @& Nat → EStateM.Result IO.Error PUnit Nat
 @[extern "rs_io_result_error_string"]
 opaque ioResultErrorString : @& String → EStateM.Result IO.Error PUnit Nat
 
+@[extern "rs_io_result_num_objs"]
+opaque ioResultNumObjs : @& EStateM.Result IO.Error PUnit Nat → UInt32
+
+@[extern "rs_io_action_ok_nat"]
+opaque ioActionOkNat : @& Nat → IO Nat
+
+@[extern "rs_io_action_error_string"]
+opaque ioActionErrorString : @& String → IO Nat
+
 @[extern "rs_roundtrip_scalar_struct"]
 opaque roundtripScalarStruct : @& ScalarStruct → ScalarStruct
 
@@ -416,8 +425,28 @@ def borrowedRoundtripTests : TestSeq :=
     match exceptErrorString "boom" with | .error s => s == "boom" | .ok _ => false) ++
   test "IOResult ok" (show Bool from
     match ioResultOkNat 42 with | .ok val _ => val == 42 | .error _ _ => false) ++
-  test "IOResult error" (show Bool from
-    match ioResultErrorString "oops" with | .error _ _ => true | .ok _ _ => false) ++
+  test "IOResult ok num_objs" (ioResultNumObjs (ioResultOkNat 42) == 1) ++
+  test "IOResult error userError" (show Bool from
+    match ioResultErrorString "oops" with
+    | .error (err@(.userError msg)) _ => msg == "oops" && toString err == "oops"
+    | _ => false) ++
+  test "IOResult error num_objs" (ioResultNumObjs (ioResultErrorString "oops") == 1) ++
+  .individualIO "IO action ok" none (do
+    let v ← ioActionOkNat 42
+    pure (v == 42, 0, 0, if v == 42 then none else some s!"got {v}")) .done ++
+  .individualIO "IO action error_string" none (do
+    try
+      let _ ← ioActionErrorString "boom"
+      pure (false, 0, 0, some "expected IO.Error.userError, got ok")
+    catch e =>
+      let ok := match e with
+        | .userError msg => msg == "boom" && toString e == "boom"
+        | _ => false
+      pure (ok, 0, 0, if ok then none else some s!"got unexpected error: {e}")) .done ++
+  test "String interior NUL roundtrip" (show Bool from
+    let nulStr := String.ofList ['a', Char.ofNat 0, 'b']
+    let rt := roundtripString nulStr
+    rt == nulStr && rt.utf8ByteSize == 3 && rt.length == 3) ++
   test "Borrowed result chain" (borrowedResultChain (#[1, 2], #[3, 4]) == 10) ++
   test "Borrowed except ok" (borrowedExceptValue (.ok 42) == 42) ++
   test "Borrowed except error" (borrowedExceptValue (.error "hello") == 5) ++
