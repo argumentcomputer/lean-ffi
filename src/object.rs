@@ -19,7 +19,6 @@ macro_rules! test_assert {
         assert!($($arg)*);
     };
 }
-use crate::safe_cstring;
 
 // Tag constants from lean.h (only used by test_assert! when test-ffi is enabled)
 #[cfg(feature = "test-ffi")]
@@ -32,9 +31,6 @@ mod tags {
 }
 #[cfg(feature = "test-ffi")]
 use tags::*;
-
-/// Constructor tag for `IO.Error.userError`.
-const IO_ERROR_USER_ERROR_TAG: u8 = 7;
 
 /// Convert a `usize` to `u32` for the Lean C API, panicking on overflow.
 #[inline]
@@ -841,15 +837,21 @@ impl LeanString<LeanOwned> {
     }
 
     /// Create a Lean string from a Rust `&str`.
+    ///
+    /// Uses `lean_mk_string_from_bytes` so interior NUL bytes are preserved
+    /// without an intermediate C-string copy.
     pub fn new(s: &str) -> Self {
-        let c = safe_cstring(s);
-        let obj = unsafe { include::lean_mk_string(c.as_ptr()) };
-        Self(LeanOwned(obj))
+        Self::from_bytes(s.as_bytes())
     }
 
     /// Create a Lean string from raw bytes via `lean_mk_string_from_bytes`.
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let obj = unsafe { include::lean_mk_string_from_bytes(bytes.as_ptr().cast(), bytes.len()) };
+        let ptr = if bytes.is_empty() {
+            c"".as_ptr()
+        } else {
+            bytes.as_ptr().cast()
+        };
+        let obj = unsafe { include::lean_mk_string_from_bytes(ptr, bytes.len()) };
         Self(LeanOwned(obj))
     }
 
@@ -1751,20 +1753,20 @@ impl From<LeanExcept<LeanOwned>> for LeanOwned {
 }
 
 // =============================================================================
-// LeanIOResult — EStateM.Result (BaseIO.Result)
+// LeanIOResult — EStateM.Result (BaseIO.Result / IO)
 // =============================================================================
 //
-// Constructor-based inductive (no special lean.h struct):
-//   EStateM.Result.ok    = lean_ctor_object, tag 0, 2 obj fields (value, state)
-//   EStateM.Result.error = lean_ctor_object, tag 1, 2 obj fields (error, state)
+// Delegated to lean.h's `lean_io_result_mk_ok`, `lean_io_result_mk_error`, and
+// `lean_mk_io_user_error` so constructor layouts and `IO.Error` tags always
+// match the active Lean runtime (e.g. Lean >= 4.28 uses 1-field `EStateM.Result`
+// with erased `IO.RealWorld`, and `IO.Error.userError` is tag 18).
 //
 // lean.h accessors:
 //   lean_io_result_is_ok(r)        → lean_ptr_tag(r) == 0
 //   lean_io_result_get_value(r)    → lean_ctor_get(r, 0)
 //   lean_io_result_get_error(r)    → lean_ctor_get(r, 0)
 
-/// Typed wrapper for a Lean `BaseIO.Result α` (`EStateM.Result`).
-/// ok = ctor tag 0 (value, world), error = ctor tag 1 (error, world).
+/// Typed wrapper for a Lean `BaseIO.Result α` / `IO α` (`EStateM.Result`).
 #[repr(transparent)]
 pub struct LeanIOResult<R: LeanRef>(R);
 
@@ -1793,27 +1795,26 @@ impl<R: LeanRef> LeanIOResult<R> {
 }
 
 impl LeanIOResult<LeanOwned> {
-    /// Build a successful IO result (tag 0, fields: [val, box(0)]).
+    /// Build a successful IO result via `lean_io_result_mk_ok`.
     pub fn ok(val: impl Into<LeanOwned>) -> Self {
-        let ctor = LeanCtor::alloc(0, 2, 0);
-        ctor.set(0, val);
-        ctor.set(1, LeanOwned::box_usize(0)); // world token
-        Self(LeanOwned(ctor.into_raw()))
+        let val: LeanOwned = val.into();
+        let raw = unsafe { include::lean_io_result_mk_ok(val.into_raw()) };
+        Self(LeanOwned(raw))
     }
 
-    /// Build an IO error result (tag 1, fields: [err, box(0)]).
+    /// Build an IO error result via `lean_io_result_mk_error`.
     pub fn error(err: impl Into<LeanOwned>) -> Self {
-        let ctor = LeanCtor::alloc(1, 2, 0);
-        ctor.set(0, err);
-        ctor.set(1, LeanOwned::box_usize(0)); // world token
-        Self(LeanOwned(ctor.into_raw()))
+        let err: LeanOwned = err.into();
+        let raw = unsafe { include::lean_io_result_mk_error(err.into_raw()) };
+        Self(LeanOwned(raw))
     }
 
-    /// Build an IO error from a Rust string via `IO.Error.userError` (tag 7, 1 field).
+    /// Build an IO error from a Rust string via `lean_mk_io_user_error`
+    /// (`IO.Error.userError`).
     pub fn error_string(msg: &str) -> Self {
-        let user_error = LeanCtor::alloc(IO_ERROR_USER_ERROR_TAG, 1, 0);
-        user_error.set(0, LeanString::new(msg));
-        Self::error(user_error)
+        let s = LeanString::new(msg);
+        let user_error = unsafe { include::lean_mk_io_user_error(s.into_raw()) };
+        Self::error(unsafe { LeanOwned::from_raw(user_error) })
     }
 
     /// Consume without calling `lean_dec`.
